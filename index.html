@@ -1,0 +1,2973 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AEROFLOW / LAB · Simulador CFD de gabinete</title>
+<meta name="description" content="Simulador interactivo 3D de flujo de aire en un gabinete ATX: campo vectorial, partículas térmicas, presión positiva/negativa y control de ventiladores con raycasting." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
+        },
+        colors: {
+          ink: '#05070c',
+          panel: '#0b111a',
+          cyanx: '#5ee7ff',
+          amberx: '#ffb15c'
+        }
+      }
+    }
+  };
+</script>
+<style>
+  :root {
+    --bg: #05070c;
+    --glass: rgba(10, 16, 25, 0.74);
+    --line: rgba(148, 197, 255, 0.13);
+    --line-strong: rgba(148, 197, 255, 0.22);
+    --cyan: #5ee7ff;
+    --cyan-deep: #2ba9cc;
+    --amber: #ffb15c;
+    --red: #ff6574;
+    --green: #5ff0a0;
+    --muted: #7e93a9;
+    --text: #dbe7f5;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  button { font-family: inherit; }
+  #scene {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; outline: none; touch-action: none;
+  }
+  #bg-glow {
+    position: fixed; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(900px 700px at 18% 10%, rgba(25, 120, 180, 0.18), transparent 62%),
+      radial-gradient(760px 620px at 86% 84%, rgba(255, 118, 48, 0.08), transparent 64%),
+      radial-gradient(640px 520px at 58% 32%, rgba(40, 200, 255, 0.055), transparent 66%),
+      radial-gradient(1100px 900px at 50% 50%, rgba(6, 12, 20, 0.2), transparent 70%);
+  }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 46% 48%, transparent 38%, rgba(2, 4, 8, 0.58) 100%);
+  }
+
+  .glass {
+    background: linear-gradient(158deg, rgba(16, 25, 38, 0.82), rgba(6, 10, 17, 0.76));
+    border: 1px solid var(--line);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    backdrop-filter: blur(24px) saturate(150%);
+  }
+  .eyebrow {
+    font-size: 9.5px;
+    line-height: 1.2;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #6f8399;
+    font-weight: 500;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .metric { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.04em; }
+
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 9px; letter-spacing: 0.16em; font-weight: 600;
+    color: #9ce8d7; border: 1px solid rgba(95, 240, 160, 0.24);
+    background: rgba(95, 240, 160, 0.07); padding: 4px 8px; border-radius: 999px;
+  }
+  .live-dot {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 10px rgba(95, 240, 160, 0.9);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.72); } }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9px; font-weight: 600; letter-spacing: 0.1em;
+    padding: 4px 8px; border-radius: 999px; border: 1px solid transparent;
+    transition: color 0.25s, border-color 0.25s, background 0.25s;
+  }
+  .badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .badge-positive { color: #6cf0a4; border-color: rgba(95, 240, 160, 0.32); background: rgba(95, 240, 160, 0.09); }
+  .badge-neutral { color: #ffcf8a; border-color: rgba(255, 177, 92, 0.32); background: rgba(255, 177, 92, 0.09); }
+  .badge-negative { color: #ff8c97; border-color: rgba(255, 101, 116, 0.34); background: rgba(255, 101, 116, 0.1); }
+
+  .pressure-card {
+    position: relative; overflow: hidden; border-radius: 16px; padding: 14px;
+    border: 1px solid rgba(94, 231, 255, 0.15);
+    background:
+      radial-gradient(130% 180% at 0% 0%, rgba(94, 231, 255, 0.1), transparent 58%),
+      linear-gradient(160deg, rgba(10, 18, 29, 0.86), rgba(6, 10, 17, 0.66));
+  }
+  .pressure-card::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.035) 48%, transparent 66%);
+    transform: translateX(-40%);
+  }
+
+  .gauge-track {
+    position: relative; height: 6px; border-radius: 999px;
+    background: linear-gradient(90deg,
+      rgba(255, 101, 116, 0.55) 0%,
+      rgba(255, 101, 116, 0.18) 22%,
+      rgba(150, 170, 190, 0.16) 46%,
+      rgba(150, 170, 190, 0.16) 54%,
+      rgba(94, 231, 255, 0.2) 72%,
+      rgba(95, 240, 160, 0.6) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.055);
+  }
+  .gauge-center { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: rgba(255, 255, 255, 0.18); }
+  .gauge-needle {
+    position: absolute; top: 50%; width: 3px; height: 15px; border-radius: 3px;
+    background: #f2fbff; transform: translate(-50%, -50%);
+    box-shadow: 0 0 12px rgba(94, 231, 255, 0.95), 0 0 3px #fff;
+    transition: left 0.4s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s;
+  }
+
+  .metric-card {
+    border-radius: 13px; padding: 11px 12px; border: 1px solid rgba(148, 197, 255, 0.09);
+    background: rgba(255, 255, 255, 0.018);
+    min-width: 0;
+  }
+  .flow-bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.065); overflow: hidden; margin-top: 9px; }
+  .flow-bar > i { display: block; height: 100%; border-radius: 999px; transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+  .intake .flow-bar > i { background: linear-gradient(90deg, #1f7bff, var(--cyan)); box-shadow: 0 0 12px rgba(94, 231, 255, 0.55); }
+  .exhaust .flow-bar > i { background: linear-gradient(90deg, #ff6a35, #ffd08a); box-shadow: 0 0 12px rgba(255, 177, 92, 0.45); }
+
+  input[type='range'] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer;
+  }
+  input[type='range']::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(90deg, rgba(94, 231, 255, 0.8) var(--p, 50%), rgba(255, 255, 255, 0.09) var(--p, 50%));
+  }
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; border-radius: 50%; margin-top: -4.5px;
+    background: #eafcff; border: 2px solid #39c6e6;
+    box-shadow: 0 0 12px rgba(94, 231, 255, 0.75);
+    transition: transform 0.15s;
+  }
+  input[type='range']:hover::-webkit-slider-thumb { transform: scale(1.12); }
+  input[type='range']::-moz-range-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.09); }
+  input[type='range']::-moz-range-progress { height: 4px; border-radius: 999px; background: rgba(94, 231, 255, 0.8); }
+  input[type='range']::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%; background: #eafcff;
+    border: 2px solid #39c6e6; box-shadow: 0 0 12px rgba(94, 231, 255, 0.75);
+  }
+
+  .toggle { display: inline-flex; align-items: center; gap: 10px; }
+  .toggle-track {
+    position: relative; width: 38px; height: 22px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.085); border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: background 0.22s, border-color 0.22s;
+  }
+  .toggle-knob {
+    position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+    background: #8ea3b8; transition: left 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.22s, box-shadow 0.22s;
+  }
+  .toggle[aria-pressed='true'] .toggle-track { background: rgba(94, 231, 255, 0.2); border-color: rgba(94, 231, 255, 0.46); }
+  .toggle[aria-pressed='true'] .toggle-knob { left: 18px; background: var(--cyan); box-shadow: 0 0 12px rgba(94, 231, 255, 0.85); }
+
+  .seg {
+    display: flex; gap: 4px; padding: 4px; border-radius: 11px;
+    background: rgba(255, 255, 255, 0.035); border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .seg button {
+    flex: 1 1 0; min-width: 0; font-size: 10.5px; font-weight: 500; padding: 7px 5px;
+    border-radius: 7px; color: #8ea3b8; border: 1px solid transparent;
+    transition: color 0.18s, background 0.18s, box-shadow 0.18s, border-color 0.18s;
+    white-space: nowrap;
+  }
+  .seg button:hover { color: #dbe7f5; background: rgba(255, 255, 255, 0.04); }
+  .seg button.active {
+    color: #031318; font-weight: 600;
+    background: linear-gradient(180deg, #8af2ff, #36c9e9);
+    box-shadow: 0 4px 16px rgba(54, 201, 233, 0.28);
+  }
+  .seg button.active.tone-exhaust {
+    color: #1c0d02; background: linear-gradient(180deg, #ffcb8c, #ff9d4a);
+    box-shadow: 0 4px 16px rgba(255, 157, 74, 0.25);
+  }
+
+  .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid rgba(148, 197, 255, 0.13); background: rgba(255, 255, 255, 0.025);
+    color: #9fb3c7; border-radius: 9px; padding: 8px 10px; font-size: 11px;
+    transition: color 0.18s, background 0.18s, border-color 0.18s;
+  }
+  .btn-ghost:hover { color: #e3f6ff; background: rgba(94, 231, 255, 0.07); border-color: rgba(94, 231, 255, 0.3); }
+
+  .legend-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
+
+  .ctx {
+    position: fixed; z-index: 80; width: 304px; max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain;
+    padding: 14px; border-radius: 16px;
+    background: linear-gradient(160deg, rgba(14, 22, 34, 0.95), rgba(6, 10, 16, 0.94));
+    border: 1px solid rgba(130, 190, 255, 0.2);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    -webkit-backdrop-filter: blur(26px) saturate(160%);
+    backdrop-filter: blur(26px) saturate(160%);
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transform: translateY(7px) scale(0.975); transform-origin: top left;
+    transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+  }
+  .ctx.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
+  .ctx-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #edf8ff; }
+  .ctx-kicker { font-size: 8.5px; letter-spacing: 0.2em; text-transform: uppercase; color: #6f8399; margin-bottom: 3px; }
+  .ctx-id {
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 8.5px; letter-spacing: 0.08em;
+    color: #8fd8e8; border: 1px solid rgba(94, 231, 255, 0.22); border-radius: 5px;
+    padding: 2px 5px; margin-left: 6px; vertical-align: 2px;
+  }
+  .ctx-close {
+    width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 8px; color: #7e93a9; border: 1px solid transparent; font-size: 15px; line-height: 1;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .ctx-close:hover { color: #eaf7ff; background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.08); }
+  .ctx-section { margin-top: 12px; }
+  .ctx-label { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: #70869c; margin-bottom: 6px; }
+  .ctx-label-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  .ctx-hint { font-size: 9.5px; line-height: 1.55; color: #657a8f; margin-top: 6px; }
+  .ctx-divider { height: 1px; background: rgba(255, 255, 255, 0.06); margin: 13px 0 0; }
+  .ctx-power {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    border-radius: 10px; border: 1px solid rgba(148, 197, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03); padding: 8px 10px;
+    font-size: 11px; color: #9fb3c7; transition: all 0.18s;
+  }
+  .ctx-power:hover { border-color: rgba(148, 197, 255, 0.28); background: rgba(255, 255, 255, 0.05); }
+  .ctx-power.on { color: #dffbef; border-color: rgba(95, 240, 160, 0.28); background: rgba(95, 240, 160, 0.075); }
+  .ctx-power .power-led { width: 6px; height: 6px; border-radius: 50%; background: #5c6f83; transition: all 0.2s; }
+  .ctx-power.on .power-led { background: var(--green); box-shadow: 0 0 10px rgba(95, 240, 160, 0.9); }
+
+  .tooltip {
+    position: fixed; z-index: 60; padding: 8px 10px; border-radius: 9px;
+    background: rgba(6, 11, 18, 0.92); border: 1px solid rgba(94, 231, 255, 0.24);
+    color: #cfe2f3; font-size: 10.5px; line-height: 1.4; white-space: nowrap;
+    pointer-events: none; opacity: 0; transform: translateY(5px);
+    transition: opacity 0.12s, transform 0.12s;
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  .tooltip.show { opacity: 1; transform: none; }
+  .tooltip b { color: #f2fbff; font-weight: 600; }
+  .tooltip .tt-mode { color: #7e93a9; }
+  .tooltip .tt-mode.intake { color: #6fe8ff; }
+  .tooltip .tt-mode.exhaust { color: #ffbe7a; }
+
+  .toast {
+    position: fixed; z-index: 90; left: 50%; bottom: 28px;
+    transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px; border-radius: 999px;
+    color: #dff6ff; font-size: 11px; letter-spacing: 0.01em;
+    background: rgba(8, 14, 22, 0.92); border: 1px solid rgba(94, 231, 255, 0.24);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    transition: opacity 0.22s, transform 0.22s;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast .toast-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+
+  .custom-scroll { scrollbar-width: thin; scrollbar-color: rgba(148, 197, 255, 0.16) transparent; }
+  .custom-scroll::-webkit-scrollbar { width: 5px; }
+  .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+  .custom-scroll::-webkit-scrollbar-thumb { background: rgba(148, 197, 255, 0.16); border-radius: 99px; }
+  .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148, 197, 255, 0.3); }
+
+  #loader {
+    position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(700px 500px at 50% 42%, #0b1420, #04060a 72%);
+    transition: opacity 0.7s ease, visibility 0.7s;
+  }
+  #loader.done { opacity: 0; visibility: hidden; }
+  .loader-ring {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 1px solid rgba(94, 231, 255, 0.16); border-top-color: var(--cyan);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .brand-mark {
+    width: 38px; height: 38px; position: relative; flex: none;
+    border-radius: 11px; border: 1px solid rgba(94, 231, 255, 0.25);
+    background: linear-gradient(155deg, rgba(94, 231, 255, 0.14), rgba(94, 231, 255, 0.02));
+    box-shadow: 0 0 30px rgba(94, 231, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brand-mark svg { width: 21px; height: 21px; }
+
+  @media (max-width: 1180px) {
+    #panel { width: 330px; }
+  }
+  @media (max-width: 767px) {
+    #panel {
+      left: 10px; right: 10px; top: auto; bottom: 0; width: auto !important;
+      max-width: none; max-height: 46vh;
+    }
+    #panel > .glass { border-radius: 18px 18px 0 0; }
+    #brand-sub { display: none; }
+    header { display: none; }
+    .toast { bottom: 48vh; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot, .loader-ring { animation: none; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body class="bg-ink text-slate-200">
+  <div id="bg-glow"></div>
+  <canvas id="scene" aria-label="Simulación 3D del flujo de aire del gabinete"></canvas>
+  <div id="vignette"></div>
+
+  <!-- Marca -->
+  <header class="fixed left-5 top-5 z-30 pointer-events-none select-none">
+    <div class="flex items-center gap-3">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 15.5c3.2-6.8 9.4-9 16-8.2-2.1 6.9-7.4 11.4-14.1 11.9" stroke="#5ee7ff" stroke-width="1.2" stroke-linecap="round"/>
+          <path d="M7.3 17.1c-1.6-2.3-1.5-4.6-.1-6.9 1.8 1.2 2.9 2.8 3.3 4.9" stroke="#5ee7ff" stroke-width="1.1" stroke-linecap="round" opacity=".65"/>
+          <circle cx="17.2" cy="8.4" r="1.1" fill="#9ff4ff"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="font-display text-[17px] leading-none font-semibold tracking-[0.2em] text-slate-100">
+          AEROFLOW<span class="text-cyanx">/</span>LAB
+        </h1>
+        <p id="brand-sub" class="mt-1.5 text-[8.5px] uppercase tracking-[0.28em] text-slate-500">
+          Gabinete ATX · Simulación CFD interactiva
+        </p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= PANEL DERECHO ================= -->
+  <aside id="panel" class="fixed z-40 right-4 top-4 bottom-4 w-[358px] max-w-[calc(100vw-2rem)]">
+    <div class="glass h-full rounded-2xl p-4 overflow-y-auto custom-scroll">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="eyebrow">Panel de control</div>
+          <div class="mt-1 font-display text-[15px] font-semibold tracking-wide text-slate-100">Telemetría CFD</div>
+        </div>
+        <div class="live-pill"><span class="live-dot"></span>LIVE</div>
+      </div>
+
+      <!-- Presión -->
+      <div class="pressure-card mt-4">
+        <div class="flex items-center justify-between gap-2">
+          <span class="eyebrow">Presión del gabinete</span>
+          <span id="pressureBadge" class="badge badge-positive">POSITIVA</span>
+        </div>
+        <div class="mt-3 flex items-end gap-2">
+          <span id="netFlow" class="metric text-[34px] leading-[0.9] text-cyan-50">+0</span>
+          <span class="mb-1 text-[10px] text-slate-400">CFM netos</span>
+          <span id="fanCount" class="ml-auto mb-1 text-[10px] text-slate-500">0/8 <span class="text-slate-600">chasis</span></span>
+        </div>
+        <div class="mt-4">
+          <div class="gauge-track">
+            <span class="gauge-center"></span>
+            <span id="pressureNeedle" class="gauge-needle" style="left:50%"></span>
+          </div>
+          <div class="mt-1.5 flex justify-between text-[8.5px] uppercase tracking-[0.16em] text-slate-600">
+            <span>Negativa</span><span>Neutra</span><span>Positiva</span>
+          </div>
+        </div>
+        <p id="pressureHint" class="mt-3 text-[10.5px] leading-relaxed text-slate-400">
+          Equilibrio de entrada y salida. La presión positiva empuja el aire por las rejillas y reduce la entrada de polvo.
+        </p>
+      </div>
+
+      <!-- CFM -->
+      <div class="mt-2 grid grid-cols-2 gap-2">
+        <div class="metric-card intake">
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] uppercase tracking-[0.16em] text-slate-500">Intake</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-cyanx shadow-[0_0_8px_#5ee7ff]"></span>
+          </div>
+          <div class="mt-1.5 flex items-baseline gap-1">
+            <span id="intakeCfm" class="metric text-[22px] text-cyan-100">0</span>
+            <span class="text-[9px] text-slate-500">CFM</span>
+          </div>
+          <div class="flow-bar"><i id="intakeBar" style="width:0%"></i></div>
+        </div>
+        <div class="metric-card exhaust">
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] uppercase tracking-[0.16em] text-slate-500">Exhaust</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-amberx shadow-[0_0_8px_#ffb15c]"></span>
+          </div>
+          <div class="mt-1.5 flex items-baseline gap-1">
+            <span id="exhaustCfm" class="metric text-[22px] text-amber-100">0</span>
+            <span class="text-[9px] text-slate-500">CFM</span>
+          </div>
+          <div class="flow-bar"><i id="exhaustBar" style="width:0%"></i></div>
+        </div>
+      </div>
+
+      <div class="mt-2 space-y-1 rounded-xl border border-white/[0.06] bg-white/[0.018] px-3 py-2.5">
+        <div class="flex items-center justify-between text-[10px]">
+          <span class="text-slate-500">Cooler CPU</span>
+          <span id="cpuFlow" class="mono text-slate-300">— CFM · interno</span>
+        </div>
+        <div class="flex items-center justify-between text-[10px]">
+          <span class="text-slate-500">Fuente PSU</span>
+          <span id="psuNote" class="text-right text-slate-400">Toma exterior</span>
+        </div>
+      </div>
+
+      <div class="my-4 h-px bg-white/[0.06]"></div>
+
+      <!-- Controles globales -->
+      <div class="flex items-center justify-between">
+        <span class="eyebrow">Controles globales</span>
+        <span class="text-[9px] text-slate-600">tiempo real</span>
+      </div>
+
+      <div class="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.018] px-3 py-3">
+        <div class="flex items-baseline justify-between">
+          <label for="densitySlider" class="text-[11px] text-slate-300">Densidad de partículas</label>
+          <span class="mono text-[10px] text-cyan-200"><b id="densityValue">700</b> <span class="text-slate-600">/ 1500</span></span>
+        </div>
+        <input id="densitySlider" type="range" min="100" max="1500" step="25" value="700" aria-label="Densidad de partículas" />
+        <div class="flex justify-between text-[8.5px] text-slate-600"><span>100</span><span>1500</span></div>
+      </div>
+
+      <div class="mt-2 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.018] px-3 py-2.5">
+        <div>
+          <div class="text-[11px] text-slate-300">Tarjeta gráfica</div>
+          <div id="gpuState" class="text-[9px] text-slate-500">Presente · carga térmica 75%</div>
+        </div>
+        <button id="gpuToggle" class="toggle" aria-pressed="true" aria-label="Instalar o retirar la GPU">
+          <span class="toggle-track"><span class="toggle-knob"></span></span>
+        </button>
+      </div>
+
+      <div class="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.018] px-3 py-2.5">
+        <div class="flex items-center justify-between">
+          <div class="text-[11px] text-slate-300">Ubicación de la PSU</div>
+          <span class="text-[9px] text-slate-600">clásica / moderna</span>
+        </div>
+        <div id="psuQuick" class="seg mt-2">
+          <button data-psu-loc="bottom" class="active">Inferior</button>
+          <button data-psu-loc="top">Superior</button>
+        </div>
+      </div>
+
+      <div class="mt-2 grid grid-cols-2 gap-2">
+        <button id="resetBtn" class="btn-ghost" type="button">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10a8 8 0 1 1 2.3 6.7M4 4v6h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Reiniciar
+        </button>
+        <button id="focusBtn" class="btn-ghost" type="button">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Encuadrar
+        </button>
+      </div>
+
+      <div class="my-4 h-px bg-white/[0.06]"></div>
+
+      <div class="mt-4 border-t border-white/[0.06] pt-3">
+        <div class="eyebrow">Leyenda del flujo</div>
+        <div class="mt-2 grid grid-cols-2 gap-x-2 gap-y-1.5 text-[9.5px] text-slate-400">
+          <div class="flex items-center gap-1.5">
+            <span class="legend-dot" style="background:#3b8dff;box-shadow:0 0 7px #3b8dff"></span>
+            <span>Frío</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="legend-dot" style="background:#ffd166;box-shadow:0 0 7px #ffd166"></span>
+            <span>Tibio</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="legend-dot" style="background:#ff4b3e;box-shadow:0 0 7px #ff4b3e"></span>
+            <span>Caliente</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="legend-dot" style="background:#5ee7ff;box-shadow:0 0 7px #5ee7ff"></span>
+            <span>Cyan intake · ámbar exhaust</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div id="tooltip" class="tooltip" role="status"></div>
+  <div id="contextMenu" class="ctx" role="dialog" aria-label="Configuración del componente"></div>
+  <div id="toast" class="toast"><span class="toast-dot"></span><span id="toastText">Listo</span></div>
+
+  <div id="loader">
+    <div class="flex flex-col items-center gap-4">
+      <div class="loader-ring"></div>
+      <div class="text-center">
+        <div class="font-display text-[13px] tracking-[0.28em] text-slate-200">AEROFLOW<span class="text-cyanx">/</span>LAB</div>
+        <div class="mt-1 text-[8.5px] uppercase tracking-[0.24em] text-slate-500">Inicializando campo vectorial</div>
+      </div>
+    </div>
+  </div>
+
+  <noscript>
+    <div class="fixed inset-0 z-[130] flex items-center justify-center bg-ink p-8 text-center text-sm text-slate-300">
+      Activa JavaScript para ejecutar la simulación CFD.
+    </div>
+  </noscript>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+    /* ============================================================
+       0. UTILIDADES
+       ============================================================ */
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const Z_AXIS = new THREE.Vector3(0, 0, 1);
+    const UP_Y = new THREE.Vector3(0, 1, 0);
+
+    // Límites interiores del chasis usados por el solver
+    const BOUNDS = {
+      minX: -0.985, maxX: 1.005,
+      minY: -1.985, maxY: 1.985,
+      minZ: -1.985, maxZ: 1.985
+    };
+    const PARTICLE_RADIUS = 0.032;
+
+    const state = {
+      pressure: 'positive',
+      intake: 0,
+      exhaust: 0,
+      net: 0,
+      targetParticles: 700,
+      gpuPresent: true,
+      gpuLoad: 0.75,
+      time: 0
+    };
+
+    /* ============================================================
+       1. RENDERER / ESCENA / CÁMARA
+       ============================================================ */
+    const canvas = document.getElementById('scene');
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: true,
+        powerPreference: 'high-performance'
+      });
+    } catch (err) {
+      document.getElementById('loader').innerHTML =
+        '<div class="p-8 text-center text-sm text-rose-300">WebGL no está disponible en este navegador.</div>';
+      throw err;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.14;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x05070c, 0.022);
+
+    const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 120);
+    const CAM_HOME = new THREE.Vector3(6.9, 3.9, 7.6);
+    const CAM_TARGET = new THREE.Vector3(0, 0.15, 0);
+    camera.position.copy(CAM_HOME);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.copy(CAM_TARGET);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.065;
+    controls.rotateSpeed = 0.65;
+    controls.zoomSpeed = 0.8;
+    controls.panSpeed = 0.6;
+    controls.minDistance = 4.2;
+    controls.maxDistance = 18;
+    controls.maxPolarAngle = Math.PI * 0.505;
+    controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: -1 };
+    controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+    controls.update();
+    controls.saveState();
+
+    // Entorno PBR suave para cristal y metales
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem.compileEquirectangularShader();
+    const envScene = new RoomEnvironment(renderer);
+    const envRT = pmrem.fromScene(envScene, 0.04);
+    scene.environment = envRT.texture;
+    envScene.traverse((o) => { if (o.isMesh) { o.geometry?.dispose?.(); } });
+    pmrem.dispose();
+
+    /* ============================================================
+       2. LUCES
+       ============================================================ */
+    const hemi = new THREE.HemisphereLight(0x8fd8ff, 0x05080d, 0.72);
+    scene.add(hemi);
+
+    const key = new THREE.DirectionalLight(0xd6f2ff, 2.55);
+    key.position.set(7, 11, 8);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1536, 1536);
+    key.shadow.camera.left = -7;
+    key.shadow.camera.right = 7;
+    key.shadow.camera.top = 7;
+    key.shadow.camera.bottom = -7;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 30;
+    key.shadow.bias = -0.0006;
+    key.shadow.normalBias = 0.02;
+    scene.add(key);
+
+    const fillCyan = new THREE.PointLight(0x35c8ff, 34, 22, 1.8);
+    fillCyan.position.set(-5.5, 2.2, 4.5);
+    scene.add(fillCyan);
+
+    const fillWarm = new THREE.PointLight(0xff7a3c, 26, 20, 1.8);
+    fillWarm.position.set(5, -2.4, -5);
+    scene.add(fillWarm);
+
+    const rimLight = new THREE.PointLight(0x8a7cff, 20, 18, 1.8);
+    rimLight.position.set(2.5, 6.5, -4);
+    scene.add(rimLight);
+
+    // Luces interiores: revelan el hardware a través del cristal
+    const innerCool = new THREE.PointLight(0x64d9ff, 18, 7.5, 1.7);
+    innerCool.position.set(0.55, 1.15, 0.75);
+    scene.add(innerCool);
+
+    const innerWarm = new THREE.PointLight(0xff8a52, 11, 6.5, 1.8);
+    innerWarm.position.set(0.45, -0.55, 0.55);
+    scene.add(innerWarm);
+
+    const innerViolet = new THREE.PointLight(0x9b7bff, 10, 5.5, 1.8);
+    innerViolet.position.set(0.5, 0.9, -0.8);
+    scene.add(innerViolet);
+
+    /* ============================================================
+       3. TEXTURAS PROCEDURALES
+       ============================================================ */
+    function makePerforationTexture(repeatX = 6, repeatY = 12) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      g.fillStyle = '#000';
+      g.fillRect(0, 0, 128, 128);
+      g.fillStyle = '#fff';
+      for (let y = 4; y < 128; y += 11) {
+        for (let x = 4; x < 128; x += 11) {
+          const ox = (Math.floor(y / 11) % 2) * 5.5;
+          g.beginPath();
+          g.arc(x + ox, y, 2.1, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(repeatX, repeatY);
+      t.anisotropy = 8;
+      return t;
+    }
+
+    function makePcbTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 512;
+      const g = c.getContext('2d');
+      g.fillStyle = '#07130f';
+      g.fillRect(0, 0, 512, 512);
+      // trazas
+      for (let i = 0; i < 90; i++) {
+        g.strokeStyle = Math.random() > 0.55 ? 'rgba(30,95,68,.55)' : 'rgba(22,62,50,.7)';
+        g.lineWidth = Math.random() > 0.8 ? 1.6 : 0.8;
+        g.beginPath();
+        let x = Math.random() * 512, y = Math.random() * 512;
+        g.moveTo(x, y);
+        for (let s = 0; s < 3; s++) {
+          x += rand(-38, 38);
+          y += rand(-38, 38);
+          g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+      // pads
+      for (let i = 0; i < 120; i++) {
+        g.fillStyle = Math.random() > 0.7 ? 'rgba(200,165,80,.8)' : 'rgba(130,115,60,.55)';
+        const x = Math.random() * 512, y = Math.random() * 512;
+        const s = rand(1.5, 4);
+        g.fillRect(x, y, s, s);
+      }
+      // serigrafía
+      g.fillStyle = 'rgba(185,210,200,.5)';
+      g.font = '600 11px "JetBrains Mono", monospace';
+      g.fillText('AEROFLOW ATX-01', 28, 488);
+      g.fillStyle = 'rgba(120,180,160,.35)';
+      g.font = '500 8px "JetBrains Mono", monospace';
+      g.fillText('REV 2.4  /  6-LAYER', 340, 488);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      return t;
+    }
+
+    function makeTextTexture(text, color = '#c9ecff', size = 96, weight = 600, font = 'Space Grotesk') {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 256;
+      const g = c.getContext('2d');
+      g.clearRect(0, 0, 1024, 256);
+      g.fillStyle = color;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = `${weight} ${size}px "${font}", sans-serif`;
+      g.fillText(text, 512, 132);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      return t;
+    }
+
+    function makeStickerTexture(title, sub, accent = '#5ee7ff') {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 320;
+      const g = c.getContext('2d');
+      const grad = g.createLinearGradient(0, 0, 1024, 320);
+      grad.addColorStop(0, '#101720');
+      grad.addColorStop(1, '#080c12');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 1024, 320);
+      g.strokeStyle = 'rgba(255,255,255,.12)';
+      g.lineWidth = 4;
+      g.strokeRect(2, 2, 1020, 316);
+      g.fillStyle = accent;
+      g.fillRect(0, 0, 10, 320);
+      g.fillStyle = '#e9f7ff';
+      g.textAlign = 'left';
+      g.font = '700 92px "Space Grotesk", sans-serif';
+      g.fillText(title, 58, 142);
+      g.fillStyle = 'rgba(180,205,225,.66)';
+      g.font = '500 30px "JetBrains Mono", monospace';
+      g.fillText(sub, 62, 212);
+      g.fillStyle = accent;
+      g.font = '600 22px "JetBrains Mono", monospace';
+      g.fillText('AEROFLOW / LAB', 62, 272);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      return t;
+    }
+
+    const meshTex = makePerforationTexture(7, 14);
+    const rearMeshTex = makePerforationTexture(9, 5);
+    const pcbTex = makePcbTexture();
+
+    /* ============================================================
+       4. MATERIALES COMPARTIDOS
+       ============================================================ */
+    const M = {
+      frame: new THREE.MeshStandardMaterial({ color: 0x2b3240, metalness: 0.94, roughness: 0.27, envMapIntensity: 1.25 }),
+      frameDark: new THREE.MeshStandardMaterial({ color: 0x141922, metalness: 0.88, roughness: 0.38, envMapIntensity: 1.0 }),
+      panel: new THREE.MeshStandardMaterial({ color: 0x0d1219, metalness: 0.72, roughness: 0.44, envMapIntensity: 0.9 }),
+      black: new THREE.MeshStandardMaterial({ color: 0x080b10, metalness: 0.4, roughness: 0.63 }),
+      plastic: new THREE.MeshStandardMaterial({ color: 0x11161e, metalness: 0.22, roughness: 0.68 }),
+      plasticSoft: new THREE.MeshStandardMaterial({ color: 0x0b0f15, metalness: 0.12, roughness: 0.82 }),
+      blade: new THREE.MeshStandardMaterial({ color: 0x1b222c, metalness: 0.55, roughness: 0.43, side: THREE.DoubleSide, envMapIntensity: 1.1 }),
+      bladeDark: new THREE.MeshStandardMaterial({ color: 0x0d1218, metalness: 0.35, roughness: 0.6, side: THREE.DoubleSide }),
+      copper: new THREE.MeshStandardMaterial({ color: 0xb06a3a, metalness: 1.0, roughness: 0.25, envMapIntensity: 1.4 }),
+      nickel: new THREE.MeshStandardMaterial({ color: 0x9aa4b2, metalness: 1.0, roughness: 0.22, envMapIntensity: 1.4 }),
+      pcb: new THREE.MeshStandardMaterial({ color: 0x08140f, metalness: 0.32, roughness: 0.68, envMapIntensity: 0.7 }),
+      psu: new THREE.MeshStandardMaterial({ color: 0x171d26, metalness: 0.8, roughness: 0.38, envMapIntensity: 1.0 }),
+      mesh: new THREE.MeshStandardMaterial({
+        color: 0x222933, metalness: 0.85, roughness: 0.42,
+        alphaMap: meshTex, alphaTest: 0.42, side: THREE.DoubleSide, envMapIntensity: 1.0
+      }),
+      rearMesh: new THREE.MeshStandardMaterial({
+        color: 0x1a2028, metalness: 0.8, roughness: 0.45,
+        alphaMap: rearMeshTex, alphaTest: 0.42, side: THREE.DoubleSide
+      }),
+      glass: new THREE.MeshPhysicalMaterial({
+        color: 0x0b1925, metalness: 0.0, roughness: 0.045,
+        transparent: true, opacity: 0.15, side: THREE.DoubleSide,
+        depthWrite: false, envMapIntensity: 2.4,
+        clearcoat: 1, clearcoatRoughness: 0.03
+      }),
+      glassFront: new THREE.MeshPhysicalMaterial({
+        color: 0x0a1620, metalness: 0.0, roughness: 0.06,
+        transparent: true, opacity: 0.11, side: THREE.DoubleSide,
+        depthWrite: false, envMapIntensity: 2.0,
+        clearcoat: 1, clearcoatRoughness: 0.04
+      }),
+      rubber: new THREE.MeshStandardMaterial({ color: 0x07090d, metalness: 0.05, roughness: 0.92 }),
+      gold: new THREE.MeshStandardMaterial({ color: 0xd5a94a, metalness: 1.0, roughness: 0.28 }),
+      white: new THREE.MeshStandardMaterial({ color: 0xb9c9d8, metalness: 0.3, roughness: 0.5 }),
+      rgbCyan: new THREE.MeshStandardMaterial({ color: 0x0a1a20, emissive: 0x5ee7ff, emissiveIntensity: 1.5, roughness: 0.35 }),
+      rgbViolet: new THREE.MeshStandardMaterial({ color: 0x140f22, emissive: 0x8a7cff, emissiveIntensity: 1.2, roughness: 0.4 })
+    };
+
+    /* ============================================================
+       5. HELPERS
+       ============================================================ */
+    function mesh(geo, mat, x = 0, y = 0, z = 0, parent = scene) {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      parent.add(m);
+      return m;
+    }
+
+    function box(w, h, d, mat, x = 0, y = 0, z = 0, parent = scene, radius = 0.02) {
+      const geo = new RoundedBoxGeometry(w, h, d, 3, Math.min(radius, w * 0.45, h * 0.45, d * 0.45));
+      return mesh(geo, mat, x, y, z, parent);
+    }
+
+    function plane(w, h, mat, x = 0, y = 0, z = 0, parent = scene) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+      m.position.set(x, y, z);
+      parent.add(m);
+      return m;
+    }
+
+    function labelPlane(w, h, texture, x, y, z, parent, rotY = 0, rotX = 0, opacity = 1) {
+      const mat = new THREE.MeshBasicMaterial({
+        map: texture, transparent: true, opacity, depthWrite: false,
+        side: THREE.DoubleSide, toneMapped: false
+      });
+      const p = plane(w, h, mat, x, y, z, parent);
+      p.rotation.set(rotX, rotY, 0);
+      return p;
+    }
+
+    function perfTextureClone(base, rx, ry) {
+      const t = base.clone();
+      t.repeat.set(rx, ry);
+      t.needsUpdate = true;
+      return t;
+    }
+
+    /* ============================================================
+       6. ESCENARIO / PLATAFORMA
+       ============================================================ */
+    const stage = new THREE.Group();
+    scene.add(stage);
+
+    const platform = new THREE.Mesh(
+      new THREE.CylinderGeometry(6.6, 6.9, 0.12, 96),
+      new THREE.MeshStandardMaterial({ color: 0x070b11, metalness: 0.55, roughness: 0.42, envMapIntensity: 0.8 })
+    );
+    platform.position.y = -2.56;
+    platform.receiveShadow = true;
+    stage.add(platform);
+
+    const platformRing = new THREE.Mesh(
+      new THREE.TorusGeometry(4.55, 0.012, 8, 128),
+      new THREE.MeshBasicMaterial({ color: 0x5ee7ff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending })
+    );
+    platformRing.rotation.x = -Math.PI / 2;
+    platformRing.position.y = -2.49;
+    stage.add(platformRing);
+
+    const platformRing2 = new THREE.Mesh(
+      new THREE.TorusGeometry(5.5, 0.008, 8, 128),
+      new THREE.MeshBasicMaterial({ color: 0x5ee7ff, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending })
+    );
+    platformRing2.rotation.x = -Math.PI / 2;
+    platformRing2.position.y = -2.49;
+    stage.add(platformRing2);
+
+    // Sombra de contacto suave
+    function makeRadialShadowTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d');
+      const grad = g.createRadialGradient(128, 128, 10, 128, 128, 126);
+      grad.addColorStop(0, 'rgba(0,0,0,0.72)');
+      grad.addColorStop(0.5, 'rgba(0,0,0,0.3)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+      const t = new THREE.CanvasTexture(c);
+      return t;
+    }
+    const contactShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(8, 8),
+      new THREE.MeshBasicMaterial({ map: makeRadialShadowTexture(), transparent: true, opacity: 0.8, depthWrite: false })
+    );
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.position.y = -2.495;
+    stage.add(contactShadow);
+
+    /* ============================================================
+       7. GABINETE
+       ============================================================ */
+    const caseGroup = new THREE.Group();
+    scene.add(caseGroup);
+
+    const CASE = { w: 2.2, h: 4.6, d: 4.4 };
+    const CASE_BOTTOM = -2.3;
+    const X_L = -1.1, X_R = 1.1, Y_B = -2.3, Y_T = 2.3, Z_B = -2.2, Z_F = 2.2;
+    const POST = 0.072;
+
+    function buildFrame() {
+      const g = new THREE.Group();
+      caseGroup.add(g);
+      const mat = M.frame;
+
+      // Postes verticales
+      for (const x of [X_L, X_R]) {
+        for (const z of [Z_B, Z_F]) {
+          const m = box(POST, CASE.h, POST, mat, x, 0, z, g, 0.018);
+          m.castShadow = true; m.receiveShadow = true;
+        }
+      }
+      // Largueros horizontales (eje X)
+      for (const y of [Y_B, Y_T]) {
+        for (const z of [Z_B, Z_F]) {
+          const m = box(CASE.w, POST, POST, mat, 0, y, z, g, 0.018);
+          m.castShadow = true; m.receiveShadow = true;
+        }
+      }
+      // Largueros horizontales (eje Z)
+      for (const y of [Y_B, Y_T]) {
+        for (const x of [X_L, X_R]) {
+          const m = box(POST, POST, CASE.d, mat, x, y, 0, g, 0.018);
+          m.castShadow = true; m.receiveShadow = true;
+        }
+      }
+
+      // Refuerzos verticales delanteros y traseros
+      for (const z of [2.15, -2.15]) {
+        for (const x of [-0.62, 0.62]) {
+          const m = box(0.022, 4.32, 0.022, M.frameDark, x, 0, z, g, 0.008);
+          m.castShadow = true;
+        }
+      }
+      return g;
+    }
+    buildFrame();
+
+    // Panel trasero sólido
+    const backPanel = box(2.14, 4.46, 0.05, M.panel, 0, 0, -2.17, caseGroup, 0.02);
+    backPanel.castShadow = true;
+    backPanel.receiveShadow = true;
+
+    // Cristal templado ahumado en ambos laterales
+    const glassLeft = box(0.022, 4.4, 4.28, M.glass, -1.105, 0, 0, caseGroup, 0.01);
+    glassLeft.renderOrder = 30;
+    glassLeft.castShadow = false;
+    glassLeft.receiveShadow = false;
+
+    const glassSide = box(0.022, 4.4, 4.28, M.glass, 1.105, 0, 0, caseGroup, 0.01);
+    glassSide.renderOrder = 30;
+    glassSide.castShadow = false;
+    glassSide.receiveShadow = false;
+
+    // Cristal frontal
+    const glassFront = box(2.08, 4.4, 0.022, M.glassFront, 0, 0, 2.105, caseGroup, 0.01);
+    glassFront.renderOrder = 30;
+    glassFront.castShadow = false;
+    glassFront.receiveShadow = false;
+
+    // Marco de cristal lateral (tirantes finos)
+    for (const y of [-2.18, 2.18]) {
+      const m = box(0.03, 0.035, 4.3, M.frameDark, 1.112, y, 0, caseGroup, 0.008);
+      m.castShadow = true;
+    }
+    for (const z of [-2.16, 2.16]) {
+      const m = box(0.03, 4.36, 0.035, M.frameDark, 1.112, 0, z, caseGroup, 0.008);
+      m.castShadow = true;
+    }
+
+    // Paneles perforados superior e inferior
+    const topPanel = mesh(new THREE.BoxGeometry(2.12, 0.022, 4.32), M.mesh, 0, 2.285, 0, caseGroup);
+    topPanel.receiveShadow = true;
+    const bottomPanel = mesh(new THREE.BoxGeometry(2.12, 0.022, 4.32), M.mesh, 0, -2.285, 0, caseGroup);
+    bottomPanel.receiveShadow = true;
+
+    // Rejilla trasera para el ventilador de 120 mm
+    function buildRearGrille(x, y, radius) {
+      const g = new THREE.Group();
+      g.position.set(x, y, -2.205);
+      caseGroup.add(g);
+      for (let i = 0; i < 3; i++) {
+        const t = new THREE.Mesh(
+          new THREE.TorusGeometry(radius * (0.42 + i * 0.27), 0.007, 6, 64),
+          M.frameDark
+        );
+        g.add(t);
+      }
+      for (let i = 0; i < 6; i++) {
+        const spoke = box(radius * 1.85, 0.008, 0.008, M.frameDark, 0, 0, 0, g, 0.002);
+        spoke.rotation.z = (i / 6) * Math.PI;
+      }
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.1, radius * 0.1, 0.018, 20), M.frame);
+      hub.rotation.x = Math.PI / 2;
+      g.add(hub);
+      return g;
+    }
+    buildRearGrille(0, 1.15, 0.57);
+
+    // Rejilla de la PSU en el panel trasero
+    const psuRearVent = mesh(new THREE.BoxGeometry(1.25, 0.58, 0.012), M.rearMesh, 0, -1.6, -2.196, caseGroup);
+    psuRearVent.rotation.y = 0;
+
+    // Rejillas superiores de los slots
+    for (const z of [0.4, 1.5]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.01, 8, 64), M.frameDark);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(0, 2.302, z);
+      caseGroup.add(ring);
+    }
+
+    // Patas
+    for (const x of [-0.86, 0.86]) {
+      for (const z of [-1.86, 1.86]) {
+        const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.14, 24), M.rubber);
+        foot.position.set(x, -2.39, z);
+        foot.castShadow = true;
+        caseGroup.add(foot);
+      }
+    }
+
+    // I/O frontal superior
+    const ioPanel = box(0.62, 0.025, 0.18, M.plastic, 0.34, 2.305, 1.98, caseGroup, 0.02);
+    ioPanel.castShadow = true;
+    const powerBtn = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.034, 0.034, 0.02, 24),
+      new THREE.MeshStandardMaterial({ color: 0x0c1219, emissive: 0x5ee7ff, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.5 })
+    );
+    powerBtn.position.set(0.58, 2.323, 1.98);
+    caseGroup.add(powerBtn);
+    for (const x of [0.24, 0.34]) {
+      const usb = box(0.055, 0.012, 0.035, M.black, x, 2.322, 1.94, caseGroup, 0.004);
+      usb.castShadow = false;
+    }
+    const audioJack = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.012, 16), M.gold);
+    audioJack.position.set(0.44, 2.323, 1.94);
+    caseGroup.add(audioJack);
+
+    // Letras discretas en el cristal frontal
+    const frontBrand = labelPlane(
+      0.72, 0.18,
+      makeTextTexture('AEROFLOW', 'rgba(210,240,255,0.7)', 92, 600),
+      0, -2.1, 2.121, caseGroup
+    );
+    frontBrand.material.opacity = 0.7;
+
+    // Tira LED de presión en el frontal
+    const pressureLedMat = new THREE.MeshStandardMaterial({
+      color: 0x0a1512, emissive: 0x5ff0a0, emissiveIntensity: 1.7, roughness: 0.35, metalness: 0.3
+    });
+    const pressureLed = box(1.72, 0.018, 0.018, pressureLedMat, 0, -2.17, 2.145, caseGroup, 0.006);
+    pressureLed.castShadow = false;
+
+    // Detalle trasero: marco I/O de la placa
+    box(0.42, 0.52, 0.06, M.frameDark, -0.62, 1.52, -2.14, caseGroup, 0.02);
+
+    /* ============================================================
+       8. MODELO DE VENTILADOR
+       ============================================================ */
+    const ledFans = [];
+
+    function createFanModel(size = 1.15, opts = {}) {
+      const g = new THREE.Group();
+      const s = size / 2;
+      const r = size * 0.09;
+
+      // Marco cuadrado redondeado con agujero circular
+      const shape = new THREE.Shape();
+      shape.moveTo(-s + r, -s);
+      shape.lineTo(s - r, -s);
+      shape.quadraticCurveTo(s, -s, s, -s + r);
+      shape.lineTo(s, s - r);
+      shape.quadraticCurveTo(s, s, s - r, s);
+      shape.lineTo(-s + r, s);
+      shape.quadraticCurveTo(-s, s, -s, s - r);
+      shape.lineTo(-s, -s + r);
+      shape.quadraticCurveTo(-s, -s, -s + r, -s);
+
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, size * 0.452, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+
+      const frameGeo = new THREE.ExtrudeGeometry(shape, {
+        depth: 0.085,
+        bevelEnabled: true,
+        bevelSize: 0.01,
+        bevelThickness: 0.01,
+        bevelSegments: 2,
+        curveSegments: 36
+      });
+      frameGeo.center();
+      const frame = new THREE.Mesh(frameGeo, opts.frameMat || M.plastic);
+      frame.castShadow = true;
+      frame.receiveShadow = true;
+      g.add(frame);
+
+      // Aro interior metálico
+      const inner = new THREE.Mesh(
+        new THREE.TorusGeometry(size * 0.446, 0.009, 6, 56),
+        M.frameDark
+      );
+      inner.position.z = 0.052;
+      g.add(inner);
+
+      // Tornillos
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          const screw = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.014, size * 0.014, 0.012, 10), M.frame);
+          screw.rotation.x = Math.PI / 2;
+          screw.position.set(sx * s * 0.84, sy * s * 0.84, 0.055);
+          g.add(screw);
+        }
+      }
+
+      // Cubo
+      const hub = new THREE.Mesh(
+        new THREE.CylinderGeometry(size * 0.145, size * 0.155, 0.115, 28),
+        M.black
+      );
+      hub.rotation.x = Math.PI / 2;
+      hub.position.z = 0.012;
+      hub.castShadow = true;
+      g.add(hub);
+
+      // Aspas
+      const spinner = new THREE.Group();
+      spinner.position.z = 0.016;
+      const bladeCount = opts.blades || 7;
+      const bladeMat = opts.bladeMat || M.blade;
+      for (let i = 0; i < bladeCount; i++) {
+        const bladeGeo = new THREE.BoxGeometry(size * 0.33, size * 0.105, 0.013);
+        bladeGeo.translate(size * 0.295, 0, 0);
+        const blade = new THREE.Mesh(bladeGeo, bladeMat);
+        blade.rotation.x = 0.62;
+        blade.castShadow = true;
+        const holder = new THREE.Group();
+        holder.rotation.z = (i / bladeCount) * Math.PI * 2;
+        holder.add(blade);
+        spinner.add(holder);
+      }
+      g.add(spinner);
+
+      // Tapón central
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.115, size * 0.115, 0.025, 24), M.frame);
+      cap.rotation.x = Math.PI / 2;
+      cap.position.z = 0.07;
+      g.add(cap);
+      const capRing = new THREE.Mesh(new THREE.TorusGeometry(size * 0.075, 0.006, 6, 32), M.cyanRing || M.rgbCyan);
+      capRing.position.z = 0.085;
+      g.add(capRing);
+
+      // Anillo LED + halo
+      const ringMat = new THREE.MeshStandardMaterial({
+        color: 0x0a121a, emissive: opts.ledColor || 0x5ee7ff, emissiveIntensity: 0.05,
+        metalness: 0.5, roughness: 0.3
+      });
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(size * 0.49, 0.014, 8, 64), ringMat);
+      ring.position.z = 0.06;
+      g.add(ring);
+
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: opts.ledColor || 0x5ee7ff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+      });
+      const glow = new THREE.Mesh(new THREE.TorusGeometry(size * 0.49, 0.045, 8, 64), glowMat);
+      glow.position.z = 0.065;
+      glow.renderOrder = 4;
+      g.add(glow);
+
+      // Segundo anillo en la cara interior (visible para extracción y bajos)
+      const ringBack = new THREE.Mesh(ring.geometry, ringMat);
+      ringBack.position.z = -0.06;
+      g.add(ringBack);
+      const glowBack = new THREE.Mesh(glow.geometry, glowMat);
+      glowBack.position.z = -0.065;
+      glowBack.renderOrder = 4;
+      g.add(glowBack);
+
+      if (opts.dark) {
+        frame.material = M.plasticSoft;
+      }
+
+      g.userData.spinner = spinner;
+      g.userData.ringMat = ringMat;
+      g.userData.glowMat = glowMat;
+      g.userData.size = size;
+      return g;
+    }
+
+    /* ============================================================
+       9. VENTILADORES DE CHASIS
+       ============================================================ */
+    const fans = [];
+    const interactiveRoots = [];
+    let hovered = null;
+
+    const FAN_DEFS = [
+      { id: 'f1', label: 'Frontal 1', pos: [0, 1.3, 2.06], out: [0, 0, 1], mode: 'intake', rpm: 1350 },
+      { id: 'f2', label: 'Frontal 2', pos: [0, 0, 2.06], out: [0, 0, 1], mode: 'intake', rpm: 1350 },
+      { id: 'f3', label: 'Frontal 3', pos: [0, -1.3, 2.06], out: [0, 0, 1], mode: 'intake', rpm: 1150 },
+      { id: 't1', label: 'Techo 1', pos: [0, 2.06, 1.5], out: [0, 1, 0], mode: 'exhaust', rpm: 1200 },
+      { id: 't2', label: 'Techo 2', pos: [0, 2.06, 0.4], out: [0, 1, 0], mode: 'exhaust', rpm: 900, power: false },
+      { id: 'r1', label: 'Trasero', pos: [0, 1.15, -2.06], out: [0, 0, -1], mode: 'exhaust', rpm: 1250 },
+      { id: 'b1', label: 'Inferior 1', pos: [0, -2.06, 0.4], out: [0, -1, 0], mode: 'intake', rpm: 1000 },
+      { id: 'b2', label: 'Inferior 2', pos: [0, -2.06, 1.55], out: [0, -1, 0], mode: 'intake', rpm: 900 }
+    ];
+
+    for (const def of FAN_DEFS) {
+      const model = createFanModel(1.15, { blades: 7 });
+      const out = new THREE.Vector3(...def.out).normalize();
+      model.position.set(...def.pos);
+      model.quaternion.setFromUnitVectors(Z_AXIS, out);
+      caseGroup.add(model);
+
+      const fan = {
+        kind: 'fan',
+        type: 'chassis',
+        id: def.id,
+        label: def.label,
+        group: model,
+        pos: new THREE.Vector3(...def.pos),
+        outDir: out,
+        power: def.power !== false,
+        mode: def.mode,
+        rpm: def.rpm,
+        maxRpm: 2200,
+        cfmMax: 66,
+        spin: 0,
+        spinSign: def.mode === 'exhaust' ? -1 : 1,
+        ringMat: model.userData.ringMat,
+        glowMat: model.userData.glowMat,
+        spinner: model.userData.spinner,
+        ledColor: 0x5ee7ff,
+        home: { mode: def.mode, rpm: def.rpm, power: def.power !== false }
+      };
+      model.userData.interact = fan;
+      interactiveRoots.push(model);
+      fans.push(fan);
+      ledFans.push({ data: fan, ringMat: fan.ringMat, glowMat: fan.glowMat, phase: Math.random() * 6.28 });
+    }
+
+    function fanCfm(fan) {
+      if (!fan || !fan.power) return 0;
+      return fan.cfmMax * (fan.rpm / fan.maxRpm);
+    }
+
+    function setFanLed(fan) {
+      if (!fan.ringMat || !fan.glowMat) return;
+      let color = 0x1a2330;
+      if (fan.power) {
+        if (fan.type === 'cpu') color = 0xa78bfa;
+        else if (fan.type === 'psu') color = 0xffb15c;
+        else color = fan.mode === 'intake' ? 0x5ee7ff : 0xffb15c;
+      }
+      fan.ledColor = color;
+      fan.ringMat.emissive.setHex(color);
+      fan.glowMat.color.setHex(color);
+      fan.spinSign = fan.type === 'chassis' && fan.mode === 'exhaust' ? -1 : 1;
+    }
+    fans.forEach(setFanLed);
+
+    /* ============================================================
+       10. PLACA BASE
+       ============================================================ */
+    const moboGroup = new THREE.Group();
+    caseGroup.add(moboGroup);
+
+    const moboPcb = box(0.06, 3.6, 3.5, M.pcb, -1.03, 0.0, -0.1, moboGroup, 0.02);
+    moboPcb.castShadow = true;
+    moboPcb.receiveShadow = true;
+
+    // Cara visible de la PCB con trazas
+    const pcbFace = plane(3.42, 3.44, new THREE.MeshStandardMaterial({
+      map: pcbTex, metalness: 0.25, roughness: 0.7, envMapIntensity: 0.55
+    }), -0.997, 0.0, -0.1, moboGroup);
+    pcbFace.rotation.y = Math.PI / 2;
+
+    // Zócalo CPU
+    const socket = box(0.1, 0.56, 0.56, M.black, -0.965, 0.68, -0.55, moboGroup, 0.015);
+    socket.castShadow = true;
+
+    // Módulos de RAM
+    const ramRgbMats = [];
+    for (let i = 0; i < 4; i++) {
+      const z = 0.32 + i * 0.14;
+      const ram = box(0.11, 1.05, 0.062, M.plasticSoft, -0.92, 1.0, z, moboGroup, 0.01);
+      ram.castShadow = true;
+      const rgbMat = new THREE.MeshStandardMaterial({
+        color: 0x0b1018, emissive: 0x5ee7ff, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0.4
+      });
+      ramRgbMats.push(rgbMat);
+      box(0.105, 0.035, 0.058, rgbMat, -0.92, 1.54, z, moboGroup, 0.008);
+      for (let c = 0; c < 3; c++) {
+        box(0.075, 0.02, 0.045, M.darkChip || M.black, -0.915, 0.72 + c * 0.19, z, moboGroup, 0.004);
+      }
+    }
+
+    // VRM y disipadores
+    const vrm = box(0.2, 0.38, 0.95, M.frameDark, -0.91, 1.56, -1.02, moboGroup, 0.02);
+    vrm.castShadow = true;
+    for (let i = 0; i < 6; i++) {
+      box(0.215, 0.19, 0.018, M.frame, -0.91, 1.56, -1.42 + i * 0.16, moboGroup, 0.004);
+    }
+    box(0.18, 0.42, 0.34, M.frameDark, -0.91, 1.56, -1.69, moboGroup, 0.018);
+
+    // I/O shroud con tira RGB
+    box(0.24, 0.64, 0.4, M.plasticSoft, -0.89, 1.55, -1.8, moboGroup, 0.02);
+    box(0.012, 0.055, 0.3, M.rgbCyan, -0.767, 1.72, -1.8, moboGroup, 0.004);
+
+    // Chipset
+    box(0.16, 0.42, 0.5, M.frameDark, -0.92, -0.72, -1.28, moboGroup, 0.02);
+    labelPlane(0.32, 0.12, makeTextTexture('AERO', 'rgba(120,220,255,.55)', 100, 700), -0.833, -0.72, -1.28, moboGroup, Math.PI / 2);
+    box(0.14, 0.22, 0.24, M.frame, -0.93, -0.2, 0.2, moboGroup, 0.012);
+
+    // Slots PCIe y M.2
+    for (let i = 0; i < 3; i++) {
+      box(0.035, 0.05, 1.6, M.black, -0.94, -0.14 - i * 0.24, 0.25, moboGroup, 0.008);
+    }
+    box(0.05, 0.16, 0.95, M.frameDark, -0.95, -0.52, 0.62, moboGroup, 0.01);
+
+    // Conector 24 pines + cables
+    box(0.1, 0.16, 0.42, M.black, -0.93, 1.0, 1.42, moboGroup, 0.01);
+    const cableMat = new THREE.MeshStandardMaterial({ color: 0x0c1118, metalness: 0.1, roughness: 0.8 });
+    for (let i = 0; i < 5; i++) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-0.93, 1.0 - i * 0.025, 1.4),
+        new THREE.Vector3(-0.8, 0.8 - i * 0.04, 1.45),
+        new THREE.Vector3(-0.72, 0.2, 1.25),
+        new THREE.Vector3(-0.72, -0.8, 0.9),
+        new THREE.Vector3(-0.72, -1.18, 0.6)
+      ]);
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.011, 5, false), cableMat);
+      moboGroup.add(tube);
+    }
+
+    // Condensadores
+    for (let i = 0; i < 5; i++) {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.12, 12), M.nickel);
+      cap.position.set(-0.92, 1.95, -0.1 + i * 0.13);
+      moboGroup.add(cap);
+    }
+
+    /* ============================================================
+       11. COOLER DE CPU ORIENTABLE
+       ============================================================ */
+    const CPU_CENTER = new THREE.Vector3(-0.55, 0.68, -0.55);
+    const cpuRoot = new THREE.Group();
+    caseGroup.add(cpuRoot);
+
+    // Base de cobre
+    const cpuBase = box(0.5, 0.09, 0.5, M.copper, CPU_CENTER.x, CPU_CENTER.y - 0.57, CPU_CENTER.z, cpuRoot, 0.02);
+    cpuBase.castShadow = true;
+
+    // Aletas
+    for (let i = 0; i < 11; i++) {
+      const fin = box(0.58, 0.018, 0.58, M.nickel, CPU_CENTER.x, 0.2 + i * 0.094, CPU_CENTER.z, cpuRoot, 0.006);
+      fin.castShadow = true;
+      fin.receiveShadow = true;
+    }
+    // Heatpipes
+    for (const dx of [-0.18, 0.18]) {
+      for (const dz of [-0.18, 0.18]) {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 1.06, 12), M.copper);
+        pipe.position.set(CPU_CENTER.x + dx, 0.72, CPU_CENTER.z + dz);
+        pipe.castShadow = true;
+        cpuRoot.add(pipe);
+      }
+    }
+    // Tapa superior
+    box(0.6, 0.035, 0.6, M.frameDark, CPU_CENTER.x, 1.24, CPU_CENTER.z, cpuRoot, 0.012);
+    labelPlane(0.32, 0.08, makeTextTexture('AFC', 'rgba(175,220,255,.55)', 104, 700), CPU_CENTER.x, 1.265, CPU_CENTER.z, cpuRoot, 0, -Math.PI / 2);
+
+    // Ventilador del cooler
+    const cpuFanModel = createFanModel(0.82, { blades: 9, ledColor: 0xa78bfa });
+    cpuRoot.add(cpuFanModel);
+
+    const cpu = {
+      kind: 'fan',
+      type: 'cpu',
+      id: 'cpu',
+      label: 'Cooler CPU',
+      group: cpuFanModel,
+      root: cpuRoot,
+      pos: CPU_CENTER.clone(),
+      center: CPU_CENTER.clone(),
+      power: true,
+      rpm: 1400,
+      maxRpm: 2000,
+      cfmMax: 58,
+      dirName: 'back',
+      dir: new THREE.Vector3(0, 0, -1),
+      flowPos: new THREE.Vector3(),
+      fanWorld: new THREE.Vector3(),
+      spin: 0,
+      spinSign: 1,
+      ringMat: cpuFanModel.userData.ringMat,
+      glowMat: cpuFanModel.userData.glowMat,
+      spinner: cpuFanModel.userData.spinner,
+      ledColor: 0xa78bfa,
+      home: { rpm: 1400, power: true, dirName: 'back' }
+    };
+    cpuRoot.userData.interact = cpu;
+    interactiveRoots.push(cpuRoot);
+    ledFans.push({ data: cpu, ringMat: cpu.ringMat, glowMat: cpu.glowMat, phase: Math.random() * 6.28 });
+
+    const CPU_DIRS = {
+      back: new THREE.Vector3(0, 0, -1),
+      up: new THREE.Vector3(0, 1, 0),
+      front: new THREE.Vector3(0, 0, 1),
+      down: new THREE.Vector3(0, -1, 0)
+    };
+    const CPU_DIR_LABEL = { back: 'Hacia atrás', up: 'Hacia arriba', front: 'Hacia el frente', down: 'Hacia abajo' };
+
+    function layoutCpuFan() {
+      const dir = cpu.dir.clone().normalize();
+      let mount;
+      let faceNormal;
+      if (Math.abs(dir.y) > 0.5) {
+        mount = CPU_CENTER.clone().add(new THREE.Vector3(0, 0.6, 0));
+        faceNormal = new THREE.Vector3(0, 1, 0);
+      } else {
+        mount = CPU_CENTER.clone().addScaledVector(dir, -0.6);
+        faceNormal = dir.clone().negate();
+      }
+      cpuFanModel.position.copy(mount);
+      cpuFanModel.quaternion.setFromUnitVectors(Z_AXIS, faceNormal);
+      cpu.fanWorld.copy(mount);
+      cpu.flowPos.copy(mount);
+    }
+    layoutCpuFan();
+    setFanLed(cpu);
+
+    /* ============================================================
+       12. TARJETA GRÁFICA
+       ============================================================ */
+    const GPU_CENTER = new THREE.Vector3(-0.63, -0.07, 0.05);
+    const gpuGroup = new THREE.Group();
+    gpuGroup.position.set(0, 0, 0);
+    caseGroup.add(gpuGroup);
+
+    const gpuShroud = box(0.56, 0.34, 2.2, M.plastic, GPU_CENTER.x, GPU_CENTER.y, GPU_CENTER.z, gpuGroup, 0.045);
+    gpuShroud.castShadow = true;
+    gpuShroud.receiveShadow = true;
+    const gpuBackplate = box(0.6, 0.05, 2.22, M.frameDark, GPU_CENTER.x, GPU_CENTER.y + 0.2, GPU_CENTER.z, gpuGroup, 0.02);
+    gpuBackplate.castShadow = true;
+
+    // PCB y conectores
+    box(0.46, 0.08, 2.16, M.pcb, GPU_CENTER.x, GPU_CENTER.y + 0.015, GPU_CENTER.z, gpuGroup, 0.01);
+    box(0.18, 0.12, 0.3, M.black, GPU_CENTER.x - 0.1, GPU_CENTER.y + 0.25, GPU_CENTER.z + 0.55, gpuGroup, 0.01);
+    // Soporte trasero
+    box(0.5, 0.34, 0.05, M.frame, GPU_CENTER.x, GPU_CENTER.y + 0.05, GPU_CENTER.z - 1.12, gpuGroup, 0.01);
+
+    // Tira RGB lateral
+    const gpuSideMat = new THREE.MeshStandardMaterial({ color: 0x0c1018, emissive: 0x8a7cff, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 });
+    box(0.012, 0.02, 1.8, gpuSideMat, GPU_CENTER.x + 0.285, GPU_CENTER.y + 0.17, GPU_CENTER.z, gpuGroup, 0.004);
+    labelPlane(0.95, 0.2, makeStickerTexture('VORTEX X', '16 GB  /  TRIPLE FAN', '#8a7cff'), GPU_CENTER.x + 0.288, GPU_CENTER.y + 0.03, GPU_CENTER.z + 0.35, gpuGroup, Math.PI / 2);
+    // Logotipo sobre el backplate, visible desde la cámara frontal
+    labelPlane(1.7, 0.28, makeStickerTexture('VORTEX X', 'TRIPLE FAN  /  ARGB', '#8a7cff'), GPU_CENTER.x, GPU_CENTER.y + 0.228, GPU_CENTER.z, gpuGroup, 0, -Math.PI / 2, 0.95);
+
+    // Ventiladores de la GPU (decorativos, orientados hacia abajo)
+    const gpuFanSpinners = [];
+    const gpuFanGlows = [];
+    for (const z of [GPU_CENTER.z + 0.57, GPU_CENTER.z - 0.57]) {
+      const gpuFan = createFanModel(0.64, { blades: 9, ledColor: 0x7dffb2, frameMat: M.plasticSoft });
+      gpuFan.position.set(GPU_CENTER.x, GPU_CENTER.y - 0.2, z);
+      gpuFan.quaternion.setFromUnitVectors(Z_AXIS, new THREE.Vector3(0, -1, 0));
+      gpuGroup.add(gpuFan);
+      gpuFanSpinners.push(gpuFan.userData.spinner);
+      gpuFanGlows.push({ ringMat: gpuFan.userData.ringMat, glowMat: gpuFan.userData.glowMat, phase: Math.random() * 6.28 });
+    }
+
+    const gpu = {
+      kind: 'gpu',
+      type: 'gpu',
+      id: 'gpu',
+      label: 'GPU VORTEX X',
+      group: gpuGroup,
+      present: true
+    };
+    gpuGroup.userData.interact = gpu;
+    interactiveRoots.push(gpuGroup);
+
+    function setGpuPresent(present) {
+      state.gpuPresent = present;
+      gpu.present = present;
+      gpuGroup.visible = present;
+      if (gpuObstacle) gpuObstacle.enabled = present;
+      const toggle = document.getElementById('gpuToggle');
+      if (toggle) toggle.setAttribute('aria-pressed', String(present));
+      const label = document.getElementById('gpuState');
+      if (label) label.textContent = present ? 'Presente · carga térmica 75%' : 'Retirada · sin carga térmica';
+    }
+
+    /* ============================================================
+       13. FUENTE DE PODER
+       ============================================================ */
+    const psuRoot = new THREE.Group();
+    caseGroup.add(psuRoot);
+
+    const psuBody = box(1.58, 0.68, 1.72, M.psu, 0, 0, 0, psuRoot, 0.035);
+    psuBody.castShadow = true;
+    psuBody.receiveShadow = true;
+
+    // Etiqueta lateral
+    labelPlane(1.12, 0.39, makeStickerTexture('750W', '80+ GOLD  /  FULL MODULAR', '#ffb15c'), 0.795, 0.01, 0.04, psuRoot, Math.PI / 2);
+
+    // Conectores modulares y cable IEC traseros
+    box(0.34, 0.2, 0.06, M.black, -0.45, 0.02, -0.875, psuRoot, 0.01);
+    for (let i = 0; i < 4; i++) {
+      box(0.09, 0.09, 0.04, M.frameDark, -0.57 + i * 0.08, 0.02, -0.9, psuRoot, 0.006);
+    }
+    box(0.16, 0.15, 0.05, M.black, 0.48, 0.02, -0.875, psuRoot, 0.008);
+    box(0.06, 0.08, 0.05, M.black, 0.66, -0.13, -0.875, psuRoot, 0.006);
+
+    // Ventilador principal (cara superior/inferior según configuración)
+    const psuMainFan = createFanModel(0.54, { blades: 9, ledColor: 0xffb15c, frameMat: M.plasticSoft });
+    psuRoot.add(psuMainFan);
+
+    // Ventilador/rejilla secundario en la cara de conexiones
+    const psuRearFan = createFanModel(0.4, { blades: 7, ledColor: 0xffb15c, frameMat: M.plasticSoft });
+    psuRearFan.position.set(0.42, 0.0, -0.9);
+    psuRearFan.quaternion.setFromUnitVectors(Z_AXIS, new THREE.Vector3(0, 0, -1));
+    psuRoot.add(psuRearFan);
+
+    const psu = {
+      kind: 'psu',
+      type: 'psu',
+      id: 'psu',
+      label: 'Fuente PSU',
+      group: psuRoot,
+      power: true,
+      rpm: 1000,
+      maxRpm: 1800,
+      cfmMax: 44,
+      location: 'bottom',
+      face: 'exterior',
+      mainFan: psuMainFan,
+      rearFan: psuRearFan,
+      mainFanWorld: new THREE.Vector3(),
+      fanFaceDir: new THREE.Vector3(0, -1, 0),
+      ringMat: psuMainFan.userData.ringMat,
+      glowMat: psuMainFan.userData.glowMat,
+      spinner: psuMainFan.userData.spinner,
+      ledColor: 0xffb15c,
+      home: { rpm: 1000, power: true, location: 'bottom', face: 'exterior' }
+    };
+    psuRoot.userData.interact = psu;
+    interactiveRoots.push(psuRoot);
+    ledFans.push({ data: psu, ringMat: psuMainFan.userData.ringMat, glowMat: psuMainFan.userData.glowMat, phase: Math.random() * 6.28 });
+    ledFans.push({ data: psu, ringMat: psuRearFan.userData.ringMat, glowMat: psuRearFan.userData.glowMat, phase: Math.random() * 6.28 });
+
+    // Shroud inferior
+    const shroudGroup = new THREE.Group();
+    caseGroup.add(shroudGroup);
+    const shroudTop = box(2.0, 0.05, 2.24, M.panel, 0, -1.27, -0.9, shroudGroup, 0.012);
+    shroudTop.castShadow = true;
+    shroudTop.receiveShadow = true;
+    box(2.0, 0.34, 0.04, M.panel, 0, -1.44, 0.22, shroudGroup, 0.01);
+    for (let i = 0; i < 6; i++) {
+      box(0.06, 0.012, 0.34, M.black, -0.72 + i * 0.24, -1.241, -0.88, shroudGroup, 0.003);
+    }
+    labelPlane(0.55, 0.1, makeTextTexture('PSU / SHROUD', 'rgba(180,210,230,.55)', 72, 600), -0.55, -1.44, 0.243, shroudGroup);
+    const shroudRgb = box(1.5, 0.012, 0.012, M.rgbCyan, 0, -1.26, 0.2, shroudGroup, 0.004);
+
+    const psuObstacle = { box: new THREE.Box3(), enabled: true, id: 'psu' };
+    const shroudObstacle = { box: new THREE.Box3(), enabled: true, id: 'shroud' };
+    const obstacles = [
+      { box: new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(CPU_CENTER.x, CPU_CENTER.y, CPU_CENTER.z), new THREE.Vector3(0.64, 1.08, 0.64)), enabled: true, id: 'cpu' },
+      { box: new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(-0.91, 1.05, 0.53), new THREE.Vector3(0.16, 1.04, 0.62)), enabled: true, id: 'ram' },
+      { box: new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(-0.91, 1.56, -1.0), new THREE.Vector3(0.24, 0.42, 1.0)), enabled: true, id: 'vrm' },
+      psuObstacle,
+      shroudObstacle
+    ];
+    const gpuObstacle = { box: new THREE.Box3(), enabled: true, id: 'gpu' };
+    obstacles.push(gpuObstacle);
+    gpuObstacle.box.setFromCenterAndSize(GPU_CENTER, new THREE.Vector3(0.6, 0.46, 2.24));
+    shroudObstacle.box.setFromCenterAndSize(new THREE.Vector3(0, -1.245, -0.9), new THREE.Vector3(2.0, 0.08, 2.24));
+
+    function psuFaceDirFor(location, face) {
+      const outward = location === 'bottom' ? -1 : 1;
+      const sign = face === 'exterior' ? outward : -outward;
+      return new THREE.Vector3(0, sign, 0);
+    }
+
+    function layoutPsu() {
+      const y = psu.location === 'bottom' ? -1.63 : 1.63;
+      psuRoot.position.set(0, y, -1.05);
+      const faceDir = psuFaceDirFor(psu.location, psu.face);
+      psu.fanFaceDir.copy(faceDir);
+      psu.mainFan.position.set(0, faceDir.y * 0.375, 0);
+      psu.mainFan.quaternion.setFromUnitVectors(Z_AXIS, faceDir);
+      psu.mainFanWorld.copy(psuRoot.position).add(psu.mainFan.position);
+      shroudGroup.visible = psu.location === 'bottom';
+      shroudObstacle.enabled = psu.location === 'bottom';
+      psuObstacle.box.setFromCenterAndSize(psuRoot.position.clone(), new THREE.Vector3(1.62, 0.72, 1.76));
+      psuObstacle.enabled = true;
+    }
+    layoutPsu();
+    setFanLed(psu);
+
+    /* ============================================================
+       14. CAMPO VECTORIAL / FUENTES DE FLUJO
+       ============================================================ */
+    let flowSources = [];
+
+    function rebuildFlow() {
+      flowSources = [];
+
+      for (const fan of fans) {
+        if (!fan.power || fan.rpm <= 0) continue;
+        const n = fan.rpm / fan.maxRpm;
+        if (fan.mode === 'intake') {
+          flowSources.push({
+            pos: fan.pos,
+            out: fan.outDir.clone().negate(),
+            mode: 'jet',
+            strength: 9.2 * n,
+            radius: 0.56
+          });
+        } else {
+          flowSources.push({
+            pos: fan.pos,
+            out: fan.outDir.clone(),
+            mode: 'sink',
+            strength: 8.4 * n,
+            radius: 0.64
+          });
+        }
+      }
+
+      if (cpu.power && cpu.rpm > 0) {
+        flowSources.push({
+          pos: cpu.flowPos,
+          out: cpu.dir.clone().normalize(),
+          mode: 'jet',
+          strength: 8.0 * (cpu.rpm / cpu.maxRpm),
+          radius: 0.4
+        });
+      }
+
+      if (psu.power && psu.rpm > 0 && psu.face === 'interior') {
+        flowSources.push({
+          pos: psu.mainFanWorld,
+          out: psu.fanFaceDir.clone().negate(),
+          mode: 'sink',
+          strength: 7.0 * (psu.rpm / psu.maxRpm),
+          radius: 0.5
+        });
+      }
+    }
+
+    /* ============================================================
+       15. SISTEMA DE PARTÍCULAS
+       ============================================================ */
+    const MAX_PARTICLES = 1500;
+    const posArr = new Float32Array(MAX_PARTICLES * 3);
+    const colArr = new Float32Array(MAX_PARTICLES * 3);
+    const sizeArr = new Float32Array(MAX_PARTICLES);
+    const trailPos = new Float32Array(MAX_PARTICLES * 6);
+    const trailCol = new Float32Array(MAX_PARTICLES * 6);
+    const velArr = new Float32Array(MAX_PARTICLES * 3);
+    const tempArr = new Float32Array(MAX_PARTICLES);
+    const lifeArr = new Float32Array(MAX_PARTICLES);
+    const lowArr = new Float32Array(MAX_PARTICLES);
+    let activeCount = 0;
+
+    const C_COLD = new THREE.Color(0x2f6cff);
+    const C_WARM = new THREE.Color(0xffd166);
+    const C_HOT = new THREE.Color(0xff3b2f);
+    const tmpColor = new THREE.Color();
+
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3).setUsage(THREE.DynamicDrawUsage));
+    particleGeo.setAttribute('aColor', new THREE.BufferAttribute(colArr, 3).setUsage(THREE.DynamicDrawUsage));
+    particleGeo.setAttribute('aSize', new THREE.BufferAttribute(sizeArr, 1).setUsage(THREE.DynamicDrawUsage));
+    particleGeo.setDrawRange(0, 0);
+    particleGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 6);
+
+    const particleMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uPR: { value: Math.min(window.devicePixelRatio || 1, 2) }
+      },
+      vertexShader: `
+        attribute float aSize;
+        attribute vec3 aColor;
+        varying vec3 vColor;
+        uniform float uPR;
+        void main() {
+          vColor = aColor;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * uPR * (800.0 / max(0.1, -mv.z));
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+          vec2 q = gl_PointCoord - 0.5;
+          float d = length(q);
+          if (d > 0.5) discard;
+          float a = smoothstep(0.5, 0.02, d);
+          gl_FragColor = vec4(vColor, a * a);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const particlePoints = new THREE.Points(particleGeo, particleMat);
+    particlePoints.frustumCulled = false;
+    particlePoints.renderOrder = 3;
+    scene.add(particlePoints);
+
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3).setUsage(THREE.DynamicDrawUsage));
+    trailGeo.setAttribute('color', new THREE.BufferAttribute(trailCol, 3).setUsage(THREE.DynamicDrawUsage));
+    trailGeo.setDrawRange(0, 0);
+    trailGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 6);
+
+    const trailMat = new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.52,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false
+    });
+    const particleTrails = new THREE.LineSegments(trailGeo, trailMat);
+    particleTrails.frustumCulled = false;
+    particleTrails.renderOrder = 3;
+    scene.add(particleTrails);
+
+    function insideObstacle(x, y, z) {
+      for (const o of obstacles) {
+        if (o.enabled && o.box.containsPoint(new THREE.Vector3(x, y, z))) return true;
+      }
+      return false;
+    }
+
+    function pickIntakeFan() {
+      let total = 0;
+      for (const f of fans) {
+        if (f.power && f.mode === 'intake' && f.rpm > 0) total += f.rpm;
+      }
+      if (total <= 0) return null;
+      let r = Math.random() * total;
+      for (const f of fans) {
+        if (!(f.power && f.mode === 'intake' && f.rpm > 0)) continue;
+        r -= f.rpm;
+        if (r <= 0) return f;
+      }
+      return null;
+    }
+
+    function spawnParticle(i, allowAmbient = true) {
+      const i3 = i * 3;
+      const fan = pickIntakeFan();
+      let px, py, pz, vx, vy, vz;
+
+      if (fan) {
+        const out = fan.outDir;
+        let tx, ty, tz;
+        if (Math.abs(out.y) > 0.9) { tx = 1; ty = 0; tz = 0; }
+        else { tx = 0; ty = 1; tz = 0; }
+        // t1 = normalize(cross(out, t))
+        let t1x = out.y * tz - out.z * ty;
+        let t1y = out.z * tx - out.x * tz;
+        let t1z = out.x * ty - out.y * tx;
+        const tl = Math.hypot(t1x, t1y, t1z) || 1;
+        t1x /= tl; t1y /= tl; t1z /= tl;
+        // t2 = cross(t1, out)
+        const t2x = t1y * out.z - t1z * out.y;
+        const t2y = t1z * out.x - t1x * out.z;
+        const t2z = t1x * out.y - t1y * out.x;
+
+        const ang = Math.random() * Math.PI * 2;
+        const rad = Math.sqrt(Math.random()) * 0.47;
+        const ca = Math.cos(ang) * rad;
+        const sa = Math.sin(ang) * rad;
+        const inset = 0.18 + Math.random() * 0.1;
+
+        px = fan.pos.x - out.x * inset + t1x * ca + t2x * sa;
+        py = fan.pos.y - out.y * inset + t1y * ca + t2y * sa;
+        pz = fan.pos.z - out.z * inset + t1z * ca + t2z * sa;
+
+        const n = fan.rpm / fan.maxRpm;
+        const speed = 1.1 + 3.3 * n;
+        vx = -out.x * speed + t1x * rand(-0.4, 0.4) + t2x * rand(-0.4, 0.4);
+        vy = -out.y * speed + t1y * rand(-0.4, 0.4) + t2y * rand(-0.4, 0.4);
+        vz = -out.z * speed + t1z * rand(-0.4, 0.4) + t2z * rand(-0.4, 0.4);
+      } else if (allowAmbient) {
+        px = rand(BOUNDS.minX + 0.12, BOUNDS.maxX - 0.12);
+        py = rand(BOUNDS.minY + 0.2, BOUNDS.maxY - 0.2);
+        pz = rand(BOUNDS.minZ + 0.2, BOUNDS.maxZ - 0.2);
+        vx = rand(-0.3, 0.3);
+        vy = rand(-0.2, 0.3);
+        vz = rand(-0.3, 0.3);
+      } else {
+        return;
+      }
+
+      // Evitar nacer dentro de un componente
+      let guard = 0;
+      while (insideObstacle(px, py, pz) && guard < 8) {
+        px = rand(BOUNDS.minX + 0.16, BOUNDS.maxX - 0.16);
+        py = rand(BOUNDS.minY + 0.22, BOUNDS.maxY - 0.22);
+        pz = rand(BOUNDS.minZ + 0.22, BOUNDS.maxZ - 0.22);
+        guard++;
+      }
+
+      posArr[i3] = px;
+      posArr[i3 + 1] = py;
+      posArr[i3 + 2] = pz;
+      velArr[i3] = vx;
+      velArr[i3 + 1] = vy;
+      velArr[i3 + 2] = vz;
+      tempArr[i] = rand(0.06, 0.13);
+      lifeArr[i] = rand(9, 19);
+      lowArr[i] = 0;
+      trailPos[i * 6] = px; trailPos[i * 6 + 1] = py; trailPos[i * 6 + 2] = pz;
+      trailPos[i * 6 + 3] = px; trailPos[i * 6 + 4] = py; trailPos[i * 6 + 5] = pz;
+    }
+
+    function refreshColors(i) {
+      const i3 = i * 3;
+      const t = clamp(tempArr[i], 0, 1);
+      if (t < 0.5) tmpColor.copy(C_COLD).lerp(C_WARM, t * 2);
+      else tmpColor.copy(C_WARM).lerp(C_HOT, (t - 0.5) * 2);
+      const b = 0.9 + t * 1.05;
+      colArr[i3] = tmpColor.r * b;
+      colArr[i3 + 1] = tmpColor.g * b;
+      colArr[i3 + 2] = tmpColor.b * b;
+      sizeArr[i] = 0.082 + t * 0.075;
+      const i6 = i * 6;
+      trailCol[i6] = tmpColor.r * 0.14;
+      trailCol[i6 + 1] = tmpColor.g * 0.14;
+      trailCol[i6 + 2] = tmpColor.b * 0.14;
+      trailCol[i6 + 3] = tmpColor.r * 0.9;
+      trailCol[i6 + 4] = tmpColor.g * 0.9;
+      trailCol[i6 + 5] = tmpColor.b * 0.9;
+    }
+
+    function resetParticle(i) {
+      spawnParticle(i, true);
+      refreshColors(i);
+    }
+
+    function syncParticleCount() {
+      const target = clamp(Math.round(state.targetParticles), 100, MAX_PARTICLES);
+      if (activeCount < target) {
+        const add = Math.min(target - activeCount, 40);
+        for (let k = 0; k < add; k++) {
+          spawnParticle(activeCount, true);
+          refreshColors(activeCount);
+          activeCount++;
+        }
+      } else if (activeCount > target) {
+        activeCount = target;
+      }
+      particleGeo.setDrawRange(0, activeCount);
+      trailGeo.setDrawRange(0, activeCount * 2);
+    }
+
+    function updateParticles(dt) {
+      state.time += dt;
+      const time = state.time;
+      const positive = state.pressure === 'positive';
+      const cpuActive = cpu.power ? 1 : 0.35;
+
+      for (let i = 0; i < activeCount; i++) {
+        const i3 = i * 3;
+        const i6 = i * 6;
+        let px = posArr[i3];
+        let py = posArr[i3 + 1];
+        let pz = posArr[i3 + 2];
+        let vx = velArr[i3];
+        let vy = velArr[i3 + 1];
+        let vz = velArr[i3 + 2];
+        let ax = 0, ay = 0, az = 0;
+        let remove = false;
+
+        // --- Campo vectorial de los ventiladores ---
+        for (let s = 0; s < flowSources.length; s++) {
+          const src = flowSources[s];
+          const dx = px - src.pos.x;
+          const dy = py - src.pos.y;
+          const dz = pz - src.pos.z;
+          const axial = dx * src.out.x + dy * src.out.y + dz * src.out.z;
+          const rad2 = dx * dx + dy * dy + dz * dz - axial * axial;
+          let fall = 0;
+
+          if (src.mode === 'jet') {
+            if (axial > -0.12) {
+              const down = Math.max(0, axial);
+              const width = src.radius + 0.16 * Math.min(down, 2.2);
+              fall = Math.exp(-down * 0.3) * Math.exp(-rad2 / (2 * width * width));
+            }
+          } else {
+            // Succión hacia el plano del ventilador de extracción
+            if (axial < 0.12) {
+              const up = Math.max(0, -axial);
+              const width = src.radius + 0.13 * Math.min(up, 2.5);
+              fall = Math.exp(-up * 0.4) * Math.exp(-rad2 / (2 * width * width));
+            }
+            if (axial > -0.34 && axial < 0.16 && rad2 < 0.62 * 0.62) {
+              remove = true;
+            }
+          }
+
+          if (fall > 0.002) {
+            ax += src.out.x * src.strength * fall;
+            ay += src.out.y * src.strength * fall;
+            az += src.out.z * src.strength * fall;
+          }
+        }
+
+        if (remove) {
+          resetParticle(i);
+          continue;
+        }
+
+        // --- Flotabilidad térmica y corriente ambiental coherente ---
+        const temp = tempArr[i];
+        ay += temp * 1.25;
+        ax += Math.sin(py * 1.7 + time * 0.33) * 0.09;
+        az += Math.cos(px * 1.5 - time * 0.27) * 0.09;
+        ay += Math.sin((px + pz) * 0.9 + time * 0.2) * 0.04;
+
+        // --- Integración con arrastre ---
+        vx += ax * dt;
+        vy += ay * dt;
+        vz += az * dt;
+        const drag = Math.exp(-1.55 * dt);
+        vx *= drag; vy *= drag; vz *= drag;
+
+        const sp2 = vx * vx + vy * vy + vz * vz;
+        if (sp2 > 81) {
+          const k = 9 / Math.sqrt(sp2);
+          vx *= k; vy *= k; vz *= k;
+        }
+
+        px += vx * dt;
+        py += vy * dt;
+        pz += vz * dt;
+
+        // --- Colisiones con paredes interiores ---
+        const R = PARTICLE_RADIUS;
+
+        if (px < BOUNDS.minX + R) { px = BOUNDS.minX + R; if (vx < 0) vx = -vx * 0.58; }
+        else if (px > BOUNDS.maxX - R) { px = BOUNDS.maxX - R; if (vx > 0) vx = -vx * 0.58; }
+
+        if (py < BOUNDS.minY + R) { py = BOUNDS.minY + R; if (vy < 0) vy = -vy * 0.58; }
+
+        if (py > BOUNDS.maxY - R) {
+          // La rejilla superior evacúa según la presión interna.
+          const vent = px > -0.92 && px < 0.92 && pz > -1.82 && pz < 2.0;
+          const chance = state.pressure === 'positive' ? 0.72 : state.pressure === 'neutral' ? 0.28 : 0;
+          if (vent && Math.random() < chance) { resetParticle(i); continue; }
+          py = BOUNDS.maxY - R;
+          if (vy > 0) vy = -vy * 0.42;
+          vx += rand(-0.2, 0.2); vz += rand(-0.2, 0.2);
+        }
+
+        if (pz < BOUNDS.minZ + R) {
+          // El panel trasero deja salir el aire por la rejilla del ventilador.
+          const vent = px > -0.95 && px < 0.95 && py > -1.9 && py < 1.9;
+          const chance = state.pressure === 'positive' ? 0.64 : state.pressure === 'neutral' ? 0.24 : 0;
+          if (vent && Math.random() < chance) { resetParticle(i); continue; }
+          pz = BOUNDS.minZ + R;
+          if (vz < 0) vz = -vz * 0.42;
+          vx += rand(-0.2, 0.2); vy += rand(-0.2, 0.2);
+        }
+        else if (pz > BOUNDS.maxZ - R) {
+          pz = BOUNDS.maxZ - R;
+          if (vz > 0) vz = -vz * 0.42;
+          vx += rand(-0.18, 0.18); vy += rand(-0.18, 0.18);
+        }
+
+        // --- Colisiones con componentes (AABB) ---
+        for (let oi = 0; oi < obstacles.length; oi++) {
+          const obs = obstacles[oi];
+          if (!obs.enabled) continue;
+          const b = obs.box;
+          const bx0 = b.min.x - R, bx1 = b.max.x + R;
+          const by0 = b.min.y - R, by1 = b.max.y + R;
+          const bz0 = b.min.z - R, bz1 = b.max.z + R;
+          if (px > bx0 && px < bx1 && py > by0 && py < by1 && pz > bz0 && pz < bz1) {
+            const dl = px - bx0, dr = bx1 - px;
+            const db = py - by0, dtp = by1 - py;
+            const dn = pz - bz0, df = bz1 - pz;
+            const m = Math.min(dl, dr, db, dtp, dn, df);
+            if (m === dl) { px = bx0; if (vx > 0) vx = -vx * 0.52; }
+            else if (m === dr) { px = bx1; if (vx < 0) vx = -vx * 0.52; }
+            else if (m === db) { py = by0; if (vy > 0) vy = -vy * 0.52; }
+            else if (m === dtp) { py = by1; if (vy < 0) vy = -vy * 0.52; }
+            else if (m === dn) { pz = bz0; if (vz > 0) vz = -vz * 0.52; }
+            else { pz = bz1; if (vz < 0) vz = -vz * 0.52; }
+            vx += rand(-0.06, 0.06);
+            vy += rand(-0.04, 0.06);
+            vz += rand(-0.06, 0.06);
+          }
+        }
+
+        // --- Transferencia térmica ---
+        const ddx = px - CPU_CENTER.x;
+        const ddy = py - CPU_CENTER.y;
+        const ddz = pz - CPU_CENTER.z;
+        const dCpu = ddx * ddx + ddy * ddy + ddz * ddz;
+        if (dCpu < 0.95 * 0.95) {
+          const gain = (1.0 - dCpu / 0.9025) * 1.9 * cpuActive;
+          tempArr[i] = Math.min(1, tempArr[i] + gain * dt);
+        }
+
+        if (state.gpuPresent &&
+            px > -1.05 && px < -0.2 &&
+            py > -0.52 && py < 0.46 &&
+            pz > -1.25 && pz < 1.28) {
+          const gain = 1.25 * state.gpuLoad;
+          tempArr[i] = Math.min(1, tempArr[i] + gain * dt);
+        }
+
+        if (px > -1.02 && px < -0.68 && py > 1.25 && py < 1.9 && pz > -1.55 && pz < -0.6) {
+          tempArr[i] = Math.min(1, tempArr[i] + 0.55 * dt);
+        }
+
+        const cooling = (0.22 + Math.min(2.5, Math.sqrt(sp2)) * 0.055) * dt;
+        tempArr[i] += (0.075 - tempArr[i]) * Math.min(0.7, cooling);
+
+        // --- Vida útil y rescate de partículas atascadas ---
+        lifeArr[i] -= dt;
+        if (sp2 < 0.005) {
+          lowArr[i] += dt;
+          if (lowArr[i] > 1.1) resetParticle(i);
+        } else {
+          lowArr[i] = 0;
+        }
+
+        if (lifeArr[i] <= 0 ||
+            px < BOUNDS.minX - 0.35 || px > BOUNDS.maxX + 0.35 ||
+            py < BOUNDS.minY - 0.35 || py > BOUNDS.maxY + 0.35 ||
+            pz < BOUNDS.minZ - 0.35 || pz > BOUNDS.maxZ + 0.35) {
+          resetParticle(i);
+          continue;
+        }
+
+        posArr[i3] = px;
+        posArr[i3 + 1] = py;
+        posArr[i3 + 2] = pz;
+        velArr[i3] = vx;
+        velArr[i3 + 1] = vy;
+        velArr[i3 + 2] = vz;
+
+        const t = clamp(tempArr[i], 0, 1);
+        if (t < 0.5) tmpColor.copy(C_COLD).lerp(C_WARM, t * 2);
+        else tmpColor.copy(C_WARM).lerp(C_HOT, (t - 0.5) * 2);
+        const bright = 0.9 + t * 1.05;
+        colArr[i3] = tmpColor.r * bright;
+        colArr[i3 + 1] = tmpColor.g * bright;
+        colArr[i3 + 2] = tmpColor.b * bright;
+        sizeArr[i] = 0.082 + t * 0.075;
+
+        trailPos[i6] = px - vx * 0.062;
+        trailPos[i6 + 1] = py - vy * 0.062;
+        trailPos[i6 + 2] = pz - vz * 0.062;
+        trailPos[i6 + 3] = px;
+        trailPos[i6 + 4] = py;
+        trailPos[i6 + 5] = pz;
+        trailCol[i6] = tmpColor.r * 0.14;
+        trailCol[i6 + 1] = tmpColor.g * 0.14;
+        trailCol[i6 + 2] = tmpColor.b * 0.14;
+        trailCol[i6 + 3] = tmpColor.r * 0.9;
+        trailCol[i6 + 4] = tmpColor.g * 0.9;
+        trailCol[i6 + 5] = tmpColor.b * 0.9;
+      }
+
+      particleGeo.attributes.position.needsUpdate = true;
+      particleGeo.attributes.aColor.needsUpdate = true;
+      particleGeo.attributes.aSize.needsUpdate = true;
+      trailGeo.attributes.position.needsUpdate = true;
+      trailGeo.attributes.color.needsUpdate = true;
+    }
+
+    /* ============================================================
+       16. TELEMETRÍA
+       ============================================================ */
+    const PRESSURE_COLORS = {
+      positive: { hex: 0x5ff0a0, css: '#5ff0a0', label: 'POSITIVA', badge: 'badge-positive' },
+      neutral: { hex: 0xffb15c, css: '#ffb15c', label: 'NEUTRA', badge: 'badge-neutral' },
+      negative: { hex: 0xff6574, css: '#ff6574', label: 'NEGATIVA', badge: 'badge-negative' }
+    };
+
+    const el = {
+      pressureBadge: document.getElementById('pressureBadge'),
+      netFlow: document.getElementById('netFlow'),
+      fanCount: document.getElementById('fanCount'),
+      intakeCfm: document.getElementById('intakeCfm'),
+      exhaustCfm: document.getElementById('exhaustCfm'),
+      intakeBar: document.getElementById('intakeBar'),
+      exhaustBar: document.getElementById('exhaustBar'),
+      pressureNeedle: document.getElementById('pressureNeedle'),
+      pressureHint: document.getElementById('pressureHint'),
+      cpuFlow: document.getElementById('cpuFlow'),
+      psuNote: document.getElementById('psuNote'),
+      densitySlider: document.getElementById('densitySlider'),
+      densityValue: document.getElementById('densityValue'),
+      gpuToggle: document.getElementById('gpuToggle'),
+      gpuState: document.getElementById('gpuState'),
+      psuQuick: document.getElementById('psuQuick'),
+      resetBtn: document.getElementById('resetBtn'),
+      focusBtn: document.getElementById('focusBtn'),
+      tooltip: document.getElementById('tooltip'),
+      contextMenu: document.getElementById('contextMenu'),
+      toast: document.getElementById('toast'),
+      toastText: document.getElementById('toastText')
+    };
+
+    function updateTelemetry() {
+      let intake = 0;
+      let exhaust = 0;
+      let activeChassis = 0;
+
+      for (const fan of fans) {
+        if (fan.power) activeChassis++;
+        const cfm = fanCfm(fan);
+        if (fan.mode === 'intake') intake += cfm;
+        else exhaust += cfm;
+      }
+
+      const psuCfm = (psu.power && psu.face === 'interior')
+        ? psu.cfmMax * (psu.rpm / psu.maxRpm)
+        : 0;
+      exhaust += psuCfm;
+
+      const net = intake - exhaust;
+      const pressure = net > 10 ? 'positive' : net < -10 ? 'negative' : 'neutral';
+      state.intake = intake;
+      state.exhaust = exhaust;
+      state.net = net;
+      state.pressure = pressure;
+
+      if (el.netFlow) {
+        el.netFlow.textContent = (net >= 0 ? '+' : '') + net.toFixed(0);
+        el.netFlow.style.color = PRESSURE_COLORS[pressure].css;
+      }
+      if (el.pressureBadge) {
+        el.pressureBadge.textContent = PRESSURE_COLORS[pressure].label;
+        el.pressureBadge.className = 'badge ' + PRESSURE_COLORS[pressure].badge;
+      }
+      if (el.fanCount) {
+        el.fanCount.innerHTML = `${activeChassis}/${fans.length} <span class="text-slate-600">chasis</span>`;
+      }
+      if (el.intakeCfm) el.intakeCfm.textContent = intake.toFixed(0);
+      if (el.exhaustCfm) el.exhaustCfm.textContent = exhaust.toFixed(0);
+
+      const scale = Math.max(180, intake, exhaust);
+      if (el.intakeBar) el.intakeBar.style.width = clamp((intake / scale) * 100, 0, 100).toFixed(1) + '%';
+      if (el.exhaustBar) el.exhaustBar.style.width = clamp((exhaust / scale) * 100, 0, 100).toFixed(1) + '%';
+
+      if (el.pressureNeedle) {
+        const n = clamp(net / 160, -1, 1);
+        el.pressureNeedle.style.left = (50 + n * 45).toFixed(1) + '%';
+        el.pressureNeedle.style.background = PRESSURE_COLORS[pressure].css;
+        el.pressureNeedle.style.boxShadow = `0 0 12px ${PRESSURE_COLORS[pressure].css}, 0 0 3px #fff`;
+      }
+
+      if (el.pressureHint) {
+        if (pressure === 'positive') {
+          el.pressureHint.textContent = 'Presión positiva: entra más aire del que sale. El excedente escapa por las ranuras; menor acumulación de polvo.';
+        } else if (pressure === 'negative') {
+          el.pressureHint.textContent = 'Presión negativa: sale más aire del que entra. El chasis aspira por las rejillas; mayor entrada de polvo.';
+        } else {
+          el.pressureHint.textContent = 'Presión neutra: entradas y salidas equilibradas. Flujo estable y mínima turbulencia parásita.';
+        }
+      }
+
+      if (el.cpuFlow) {
+        const cpuCfm = cpu.power ? cpu.cfmMax * (cpu.rpm / cpu.maxRpm) : 0;
+        el.cpuFlow.textContent = `${cpuCfm.toFixed(0)} CFM · ${CPU_DIR_LABEL[cpu.dirName]}`;
+      }
+
+      if (el.psuNote) {
+        if (!psu.power) el.psuNote.textContent = 'Apagada · sin extracción';
+        else if (psu.face === 'interior') el.psuNote.textContent = `+${psuCfm.toFixed(0)} CFM · extracción`;
+        else el.psuNote.textContent = 'Toma exterior · sin efecto en presión';
+      }
+
+      pressureLedMat.emissive.setHex(PRESSURE_COLORS[pressure].hex);
+      pressureLedMat.emissiveIntensity = 1.6;
+
+      if (el.psuQuick) {
+        el.psuQuick.querySelectorAll('[data-psu-loc]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.psuLoc === psu.location);
+        });
+      }
+    }
+
+    function paintRange(input) {
+      if (!input) return;
+      const min = parseFloat(input.min || '0');
+      const max = parseFloat(input.max || '100');
+      const val = parseFloat(input.value || '0');
+      const p = clamp(((val - min) / (max - min)) * 100, 0, 100);
+      input.style.setProperty('--p', p.toFixed(1) + '%');
+    }
+
+    let toastTimer = null;
+    function toast(message) {
+      if (!el.toast || !el.toastText) return;
+      el.toastText.textContent = message;
+      el.toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.toast.classList.remove('show'), 2400);
+    }
+
+    function updateGpuUi() {
+      if (el.gpuToggle) el.gpuToggle.setAttribute('aria-pressed', String(state.gpuPresent));
+      if (el.gpuState) {
+        el.gpuState.textContent = state.gpuPresent
+          ? 'Presente · carga térmica 75%'
+          : 'Retirada · sin carga térmica';
+      }
+    }
+
+    /* ============================================================
+       17. ACCIONES DE ESTADO
+       ============================================================ */
+    function setFanPower(fan, on) {
+      fan.power = on;
+      setFanLed(fan);
+      rebuildFlow();
+      updateTelemetry();
+      toast(`${fan.label}: ${on ? 'encendido' : 'apagado'}`);
+    }
+
+    function toggleFanPower(fan) {
+      setFanPower(fan, !fan.power);
+    }
+
+    function setFanMode(fan, mode) {
+      if (fan.type !== 'chassis') return;
+      fan.mode = mode;
+      setFanLed(fan);
+      rebuildFlow();
+      updateTelemetry();
+    }
+
+    function setFanRpm(fan, rpm) {
+      fan.rpm = clamp(Math.round(rpm), 0, fan.maxRpm);
+      rebuildFlow();
+      updateTelemetry();
+    }
+
+    function setCpuDirection(dirName) {
+      if (!CPU_DIRS[dirName]) return;
+      cpu.dirName = dirName;
+      cpu.dir.copy(CPU_DIRS[dirName]);
+      layoutCpuFan();
+      rebuildFlow();
+      updateTelemetry();
+      toast(`Cooler CPU: flujo ${CPU_DIR_LABEL[dirName].toLowerCase()}`);
+    }
+
+    function setCpuDirFromName(dirName) {
+      setCpuDirection(dirName);
+    }
+
+    function setPsuLocation(location) {
+      if (location !== 'bottom' && location !== 'top') return;
+      psu.location = location;
+      layoutPsu();
+      rebuildFlow();
+      updateTelemetry();
+      updateGpuUi();
+      toast(`PSU reubicada en la zona ${location === 'bottom' ? 'inferior' : 'superior'}`);
+    }
+
+    function setPsuFace(face) {
+      if (face !== 'exterior' && face !== 'interior') return;
+      psu.face = face;
+      layoutPsu();
+      rebuildFlow();
+      updateTelemetry();
+      toast(`PSU: ventilador hacia el ${face === 'exterior' ? 'exterior' : 'interior'}`);
+    }
+
+    function toggleGpu() {
+      state.gpuPresent = !state.gpuPresent;
+      setGpuPresent(state.gpuPresent);
+      updateGpuUi();
+      toast(state.gpuPresent ? 'GPU instalada · fuente térmica activa' : 'GPU retirada · flujo despejado');
+    }
+
+    function resetSimulation() {
+      for (const fan of fans) {
+        fan.power = fan.home.power;
+        fan.mode = fan.home.mode;
+        fan.rpm = fan.home.rpm;
+        setFanLed(fan);
+      }
+      cpu.power = cpu.home.power;
+      cpu.rpm = cpu.home.rpm;
+      cpu.dirName = cpu.home.dirName;
+      cpu.dir.copy(CPU_DIRS[cpu.home.dirName]);
+      layoutCpuFan();
+      setFanLed(cpu);
+
+      psu.power = psu.home.power;
+      psu.rpm = psu.home.rpm;
+      psu.location = psu.home.location;
+      psu.face = psu.home.face;
+      layoutPsu();
+      setFanLed(psu);
+
+      state.gpuPresent = true;
+      setGpuPresent(true);
+      updateGpuUi();
+
+      state.targetParticles = 700;
+      if (el.densitySlider) {
+        el.densitySlider.value = '700';
+        paintRange(el.densitySlider);
+      }
+      if (el.densityValue) el.densityValue.textContent = '700';
+
+      rebuildFlow();
+      updateTelemetry();
+      syncParticleCount();
+      controls.reset();
+      resize();
+      closeContext();
+      toast('Simulación reiniciada');
+    }
+
+    function focusCamera() {
+      camera.position.copy(CAM_HOME);
+      controls.target.copy(CAM_TARGET);
+      controls.update();
+      resize();
+      toast('Cámara encuadrada');
+    }
+
+    /* ============================================================
+       18. MENÚ CONTEXTUAL
+       ============================================================ */
+    let menuTarget = null;
+    const menuAnchor = { x: 0, y: 0 };
+
+    function statusInfo(target) {
+      if (target.kind === 'gpu') {
+        return { color: '#7dffb2', text: target.present ? 'INSTALADA' : 'RETIRADA' };
+      }
+      if (!target.power) return { color: '#5c6f83', text: 'APAGADO' };
+      if (target.kind === 'psu') return { color: '#ffb15c', text: 'ACTIVA' };
+      if (target.type === 'cpu') return { color: '#a78bfa', text: 'ACTIVO' };
+      return {
+        color: target.mode === 'intake' ? '#5ee7ff' : '#ffb15c',
+        text: target.mode === 'intake' ? 'INTAKE' : 'EXHAUST'
+      };
+    }
+
+    function targetCfm(target) {
+      if (!target || target.kind === 'gpu') return 0;
+      if (!target.power) return 0;
+      return target.cfmMax * (target.rpm / target.maxRpm);
+    }
+
+    function powerRow(target) {
+      const on = target.power;
+      return `
+        <button class="ctx-power ${on ? 'on' : ''}" data-power type="button" aria-pressed="${on}">
+          <span class="power-led"></span>
+          <span>${on ? 'Encendido' : 'Apagado'}</span>
+          <span class="ml-auto text-[8.5px] uppercase tracking-[0.16em] opacity-60">Power</span>
+        </button>`;
+    }
+
+    function rpmSection(target, hint) {
+      const pct = clamp((target.rpm / target.maxRpm) * 100, 0, 100);
+      return `
+        <div class="ctx-section">
+          <div class="ctx-label-row">
+            <span class="ctx-label" style="margin-bottom:0">Velocidad</span>
+            <span class="mono text-[10px] text-slate-300"><b data-rpm-read>${target.rpm}</b> <span class="text-slate-600">RPM</span></span>
+          </div>
+          <input type="range" min="0" max="${target.maxRpm}" step="50" value="${target.rpm}" data-rpm-slider style="--p:${pct.toFixed(1)}%" aria-label="RPM del ventilador" />
+          <div class="flex justify-between text-[8px] text-slate-600"><span>0</span><span>${target.maxRpm} RPM</span></div>
+          <div class="ctx-hint">${hint}</div>
+        </div>`;
+    }
+
+    function buildFanMenu(target) {
+      const s = statusInfo(target);
+      const cfm = targetCfm(target);
+      return `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="ctx-kicker">Ventilador de chasis</div>
+            <div class="ctx-title">${target.label}<span class="ctx-id">${target.id.toUpperCase()}</span></div>
+          </div>
+          <button class="ctx-close" data-close type="button" aria-label="Cerrar">×</button>
+        </div>
+        <div class="mt-2.5 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
+          <span class="h-1.5 w-1.5 rounded-full" style="background:${s.color};box-shadow:0 0 8px ${s.color}"></span>
+          <span class="mono text-[9px] tracking-[0.1em]" style="color:${s.color}">${s.text}</span>
+          <span class="ml-auto mono text-[10px] text-slate-300"><b data-cfm-read>${cfm.toFixed(0)}</b> <span class="text-slate-600">CFM</span></span>
+        </div>
+        <div class="ctx-section">${powerRow(target)}</div>
+        <div class="ctx-section">
+          <div class="ctx-label">Dirección del flujo</div>
+          <div class="seg">
+            <button data-mode="intake" class="${target.mode === 'intake' ? 'active' : ''}" type="button">Intake · entrada</button>
+            <button data-mode="exhaust" class="${target.mode === 'exhaust' ? 'active tone-exhaust' : ''}" type="button">Exhaust · salida</button>
+          </div>
+        </div>
+        ${rpmSection(target, 'El caudal y la velocidad del campo vectorial escalan en tiempo real con las RPM.')}
+        <div class="ctx-divider"></div>
+        <div class="ctx-hint">Clic izquierdo sobre el ventilador: encender / apagar.</div>`;
+    }
+
+    function buildCpuMenu(target) {
+      const s = statusInfo(target);
+      const cfm = targetCfm(target);
+      const dirs = [
+        ['back', '← Atrás'],
+        ['up', '↑ Arriba'],
+        ['front', 'Frente →'],
+        ['down', '↓ Abajo']
+      ];
+      return `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="ctx-kicker">Disipador / ventilador CPU</div>
+            <div class="ctx-title">Cooler CPU<span class="ctx-id">CPU</span></div>
+          </div>
+          <button class="ctx-close" data-close type="button" aria-label="Cerrar">×</button>
+        </div>
+        <div class="mt-2.5 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
+          <span class="h-1.5 w-1.5 rounded-full" style="background:${s.color};box-shadow:0 0 8px ${s.color}"></span>
+          <span class="mono text-[9px] tracking-[0.1em]" style="color:${s.color}">${s.text}</span>
+          <span class="ml-auto mono text-[10px] text-slate-300"><b data-cfm-read>${cfm.toFixed(0)}</b> <span class="text-slate-600">CFM</span></span>
+        </div>
+        <div class="ctx-section">${powerRow(target)}</div>
+        <div class="ctx-section">
+          <div class="ctx-label-row">
+            <span class="ctx-label" style="margin-bottom:0">Dirección de expulsión</span>
+            <span class="text-[9px] text-violet-300">${CPU_DIR_LABEL[target.dirName]}</span>
+          </div>
+          <div class="grid grid-cols-2 gap-1.5">
+            ${dirs.map(([key, text]) => `<button data-dir="${key}" type="button" class="border border-white/[0.08] bg-white/[0.025] rounded-lg px-2 py-2 text-[10.5px] transition ${target.dirName === key ? 'text-violet-100 border-violet-400/40 bg-violet-400/10' : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}">${text}</button>`).join('')}
+          </div>
+        </div>
+        ${rpmSection(target, 'El flujo atraviesa el disipador y se orienta según la dirección elegida.')}
+        <div class="ctx-divider"></div>
+        <div class="ctx-hint">Clic izquierdo sobre el cooler: encender / apagar.</div>`;
+    }
+
+    function buildPsuMenu(target) {
+      const s = statusInfo(target);
+      const cfm = targetCfm(target);
+      return `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="ctx-kicker">Fuente de alimentación</div>
+            <div class="ctx-title">PSU 750W<span class="ctx-id">PSU</span></div>
+          </div>
+          <button class="ctx-close" data-close type="button" aria-label="Cerrar">×</button>
+        </div>
+        <div class="mt-2.5 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
+          <span class="h-1.5 w-1.5 rounded-full" style="background:${s.color};box-shadow:0 0 8px ${s.color}"></span>
+          <span class="mono text-[9px] tracking-[0.1em]" style="color:${s.color}">${s.text}</span>
+          <span class="ml-auto mono text-[10px] text-slate-300"><b data-cfm-read>${cfm.toFixed(0)}</b> <span class="text-slate-600">CFM</span></span>
+        </div>
+        <div class="ctx-section">${powerRow(target)}</div>
+        <div class="ctx-section">
+          <div class="ctx-label">Ubicación en el chasis</div>
+          <div class="seg">
+            <button data-loc="bottom" class="${target.location === 'bottom' ? 'active' : ''}" type="button">Inferior · shroud</button>
+            <button data-loc="top" class="${target.location === 'top' ? 'active' : ''}" type="button">Superior · clásica</button>
+          </div>
+        </div>
+        <div class="ctx-section">
+          <div class="ctx-label">Orientación del ventilador principal</div>
+          <div class="seg">
+            <button data-face="exterior" class="${target.face === 'exterior' ? 'active' : ''}" type="button">Hacia exterior</button>
+            <button data-face="interior" class="${target.face === 'interior' ? 'active tone-exhaust' : ''}" type="button">Hacia interior</button>
+          </div>
+          <div class="ctx-hint">${target.face === 'interior'
+            ? 'Toma aire del chasis y lo extrae por la parte trasera: suma caudal de salida.'
+            : 'Toma aire exterior de forma independiente: no altera la presión interna.'}</div>
+        </div>
+        ${rpmSection(target, 'El ventilador principal y el secundario de la cara de conexiones giran a la misma velocidad.')}
+        <div class="ctx-divider"></div>
+        <div class="ctx-hint">Clic izquierdo sobre la PSU: encender / apagar.</div>`;
+    }
+
+    function buildContextHtml(target) {
+      if (target.kind === 'psu') return buildPsuMenu(target);
+      if (target.type === 'cpu') return buildCpuMenu(target);
+      return buildFanMenu(target);
+    }
+
+    function positionMenu(x, y) {
+      const menu = el.contextMenu;
+      const pad = 12;
+      const mw = menu.offsetWidth || 304;
+      const mh = menu.offsetHeight || 360;
+      const left = clamp(x, pad, Math.max(pad, window.innerWidth - mw - pad));
+      const top = clamp(y, pad, Math.max(pad, window.innerHeight - mh - pad));
+      menu.style.left = left + 'px';
+      menu.style.top = top + 'px';
+    }
+
+    function openContext(target, x, y) {
+      menuTarget = target;
+      menuAnchor.x = x;
+      menuAnchor.y = y;
+      el.contextMenu.innerHTML = buildContextHtml(target);
+      el.contextMenu.classList.add('open');
+      const slider = el.contextMenu.querySelector('[data-rpm-slider]');
+      if (slider) paintRange(slider);
+      positionMenu(x, y);
+      el.tooltip.classList.remove('show');
+    }
+
+    function closeContext() {
+      el.contextMenu.classList.remove('open');
+      menuTarget = null;
+    }
+
+    function refreshOpenMenu() {
+      if (!menuTarget || !el.contextMenu.classList.contains('open')) return;
+      openContext(menuTarget, menuAnchor.x, menuAnchor.y);
+    }
+
+    el.contextMenu.addEventListener('click', (e) => {
+      const close = e.target.closest('[data-close]');
+      if (close) { closeContext(); return; }
+
+      if (!menuTarget) return;
+
+      if (e.target.closest('[data-power]')) {
+        if (menuTarget.kind === 'fan' || menuTarget.kind === 'psu') {
+          menuTarget.power = !menuTarget.power;
+          setFanLed(menuTarget);
+          rebuildFlow();
+          updateTelemetry();
+          toast(`${menuTarget.label || 'PSU'}: ${menuTarget.power ? 'encendido' : 'apagado'}`);
+          refreshOpenMenu();
+        }
+        return;
+      }
+
+      const modeBtn = e.target.closest('[data-mode]');
+      if (modeBtn && menuTarget.type === 'chassis') {
+        setFanMode(menuTarget, modeBtn.dataset.mode);
+        refreshOpenMenu();
+        return;
+      }
+
+      const dirBtn = e.target.closest('[data-dir]');
+      if (dirBtn && menuTarget.type === 'cpu') {
+        setCpuDirection(dirBtn.dataset.dir);
+        refreshOpenMenu();
+        return;
+      }
+
+      const locBtn = e.target.closest('[data-loc]');
+      if (locBtn && menuTarget.kind === 'psu') {
+        setPsuLocation(locBtn.dataset.loc);
+        refreshOpenMenu();
+        return;
+      }
+
+      const faceBtn = e.target.closest('[data-face]');
+      if (faceBtn && menuTarget.kind === 'psu') {
+        setPsuFace(faceBtn.dataset.face);
+        refreshOpenMenu();
+        return;
+      }
+    });
+
+    el.contextMenu.addEventListener('input', (e) => {
+      const slider = e.target.closest('[data-rpm-slider]');
+      if (!slider || !menuTarget) return;
+      paintRange(slider);
+      const value = clamp(Math.round(parseFloat(slider.value || '0')), 0, menuTarget.maxRpm);
+      menuTarget.rpm = value;
+      rebuildFlow();
+      updateTelemetry();
+      const rpmRead = el.contextMenu.querySelector('[data-rpm-read]');
+      const cfmRead = el.contextMenu.querySelector('[data-cfm-read]');
+      if (rpmRead) rpmRead.textContent = value;
+      if (cfmRead) cfmRead.textContent = targetCfm(menuTarget).toFixed(0);
+    });
+
+    /* ============================================================
+       19. RAYCASTING / INTERACCIÓN 3D
+       ============================================================ */
+    const raycaster = new THREE.Raycaster();
+    const pointerNDC = new THREE.Vector2();
+
+    function setPointer(clientX, clientY) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    }
+
+    function findInteract(obj) {
+      let node = obj;
+      while (node) {
+        if (node.userData && node.userData.interact) return node.userData.interact;
+        node = node.parent;
+      }
+      return null;
+    }
+
+    function pickAt(clientX, clientY) {
+      setPointer(clientX, clientY);
+      raycaster.setFromCamera(pointerNDC, camera);
+      const hits = raycaster.intersectObjects(interactiveRoots, true);
+      for (const hit of hits) {
+        const target = findInteract(hit.object);
+        if (target) return target;
+      }
+      return null;
+    }
+
+    function tooltipHtml(target) {
+      if (target.kind === 'gpu') {
+        return `<b>GPU VORTEX X</b> · <span class="tt-mode">clic para ${target.present ? 'retirar' : 'instalar'}</span>`;
+      }
+      if (target.kind === 'psu') {
+        return `<b>PSU 750W</b> · <span class="tt-mode ${target.power ? 'exhaust' : ''}">${target.power ? 'activa' : 'apagada'}</span> · clic derecho para configurar`;
+      }
+      if (target.type === 'cpu') {
+        return `<b>Cooler CPU</b> · <span class="tt-mode">${CPU_DIR_LABEL[target.dirName]}</span> · ${target.rpm} RPM · clic derecho`;
+      }
+      return `<b>${target.label}</b> · <span class="tt-mode ${target.mode}">${target.mode === 'intake' ? 'intake' : 'exhaust'}</span> · ${target.rpm} RPM · ${fanCfm(target).toFixed(0)} CFM`;
+    }
+
+    function showTooltip(target, clientX, clientY) {
+      el.tooltip.innerHTML = tooltipHtml(target);
+      el.tooltip.classList.add('show');
+      const pad = 10;
+      const tw = el.tooltip.offsetWidth;
+      const th = el.tooltip.offsetHeight;
+      let left = clientX + 16;
+      let top = clientY + 18;
+      if (left + tw + pad > window.innerWidth) left = clientX - tw - 14;
+      if (top + th + pad > window.innerHeight) top = clientY - th - 14;
+      el.tooltip.style.left = Math.max(pad, left) + 'px';
+      el.tooltip.style.top = Math.max(pad, top) + 'px';
+    }
+
+    function hideTooltip() {
+      el.tooltip.classList.remove('show');
+    }
+
+    function handleLeftClick(target) {
+      if (!target) return;
+      if (target.kind === 'gpu') {
+        toggleGpu();
+        refreshOpenMenu();
+        return;
+      }
+      if (target.kind === 'fan' || target.kind === 'psu') {
+        target.power = !target.power;
+        setFanLed(target);
+        rebuildFlow();
+        updateTelemetry();
+        toast(`${target.label || 'PSU'}: ${target.power ? 'encendido' : 'apagado'}`);
+        if (menuTarget === target) refreshOpenMenu();
+      }
+    }
+
+    let downInfo = null;
+    let isDragging = false;
+
+    canvas.addEventListener('pointerdown', (e) => {
+      downInfo = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
+      isDragging = false;
+      if (e.button === 0) {
+        controls.domElement.style.cursor = 'grabbing';
+        hideTooltip();
+      }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (downInfo && e.buttons) {
+        const dx = e.clientX - downInfo.x;
+        const dy = e.clientY - downInfo.y;
+        if (dx * dx + dy * dy > 36) isDragging = true;
+        if (isDragging) {
+          hideTooltip();
+          return;
+        }
+      }
+      if (e.buttons) return;
+
+      const target = pickAt(e.clientX, e.clientY);
+      if (target !== hovered) {
+        hovered = target;
+        canvas.style.cursor = target ? 'pointer' : 'grab';
+      }
+      if (target) showTooltip(target, e.clientX, e.clientY);
+      else hideTooltip();
+    });
+
+    canvas.addEventListener('pointerleave', () => {
+      hovered = null;
+      hideTooltip();
+      if (!downInfo) canvas.style.cursor = 'grab';
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (!downInfo) return;
+      const info = downInfo;
+      downInfo = null;
+      canvas.style.cursor = 'grab';
+      if (e.button !== 0 || info.button !== 0) return;
+      const dx = e.clientX - info.x;
+      const dy = e.clientY - info.y;
+      if (dx * dx + dy * dy > 36 || performance.now() - info.time > 700) return;
+      const target = pickAt(e.clientX, e.clientY);
+      if (target) handleLeftClick(target);
+    });
+
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      hideTooltip();
+      const target = pickAt(e.clientX, e.clientY);
+      if (target && target.kind !== 'gpu') openContext(target, e.clientX, e.clientY);
+      else closeContext();
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!el.contextMenu.classList.contains('open')) return;
+      if (!el.contextMenu.contains(e.target)) closeContext();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeContext();
+        hideTooltip();
+      }
+    });
+
+    /* ============================================================
+       20. BINDINGS DE INTERFAZ
+       ============================================================ */
+    el.densitySlider.addEventListener('input', (e) => {
+      const value = clamp(parseInt(e.target.value, 10) || 100, 100, 1500);
+      state.targetParticles = value;
+      el.densityValue.textContent = String(value);
+      paintRange(e.target);
+    });
+
+    el.gpuToggle.addEventListener('click', () => {
+      toggleGpu();
+      refreshOpenMenu();
+    });
+
+    el.psuQuick.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-psu-loc]');
+      if (!btn) return;
+      setPsuLocation(btn.dataset.psuLoc);
+      refreshOpenMenu();
+    });
+
+    el.resetBtn.addEventListener('click', resetSimulation);
+    el.focusBtn.addEventListener('click', focusCamera);
+
+    /* ============================================================
+       21. ANIMACIÓN
+       ============================================================ */
+    const clock = new THREE.Clock();
+    let firstFrame = true;
+
+    function updateSpin(entity, dt, sign) {
+      if (!entity.spinner) return;
+      const n = entity.maxRpm ? entity.rpm / entity.maxRpm : 0;
+      const target = entity.power && entity.rpm > 0 ? 11 + 15 * n : 0;
+      entity.visualSpeed = lerp(entity.visualSpeed || 0, target, 1 - Math.exp(-6 * dt));
+      entity.spinner.rotation.z += entity.visualSpeed * dt * sign;
+    }
+
+    function updateVisuals(dt) {
+      const t = state.time;
+
+      for (const fan of fans) {
+        updateSpin(fan, dt, fan.spinSign);
+        setGlow(fan, t);
+      }
+      updateSpin(cpu, dt, 1);
+      setGlow(cpu, t);
+      updateSpin(psu, dt, 1);
+      if (psu.rearFan) {
+        const n = psu.rpm / psu.maxRpm;
+        psu.rearVisualSpeed = lerp(psu.rearVisualSpeed || 0, psu.power && psu.rpm > 0 ? 9 + 13 * n : 0, 1 - Math.exp(-6 * dt));
+        psu.rearFan.userData.spinner.rotation.z -= psu.rearVisualSpeed * dt;
+        psuRearFanGlow(t);
+      }
+      setGlow(psu, t);
+
+      if (gpuGroup.visible) {
+        for (const spinner of gpuFanSpinners) spinner.rotation.z += 13 * dt;
+        for (const item of gpuFanGlows) {
+          item.ringMat.emissiveIntensity = 1.2 + 0.2 * Math.sin(t * 3 + item.phase);
+          item.glowMat.opacity = 0.2 + 0.035 * Math.sin(t * 3 + item.phase);
+        }
+      }
+
+      // Respiración de luces de la escena
+      pressureLedMat.emissiveIntensity = 1.45 + 0.22 * Math.sin(t * 1.9);
+      platformRing.material.opacity = 0.24 + 0.055 * Math.sin(t * 1.4);
+      M.rgbCyan.emissiveIntensity = 1.25 + 0.22 * Math.sin(t * 1.7);
+      M.rgbViolet.emissiveIntensity = 1.0 + 0.2 * Math.sin(t * 1.3 + 0.6);
+      gpuSideMat.emissiveIntensity = 1.35 + 0.25 * Math.sin(t * 2.1 + 1.2);
+      for (let i = 0; i < ramRgbMats.length; i++) {
+        ramRgbMats[i].emissiveIntensity = 0.75 + 0.22 * Math.sin(t * 1.6 + i * 0.8);
+      }
+    }
+
+    let psuRearFanGlowMatCached = null;
+    function psuRearFanGlow(t) {
+      if (!psu.rearFan) return;
+      if (!psuRearFanGlowMatCached) {
+        psuRearFanGlowMatCached = {
+          ringMat: psu.rearFan.userData.ringMat,
+          glowMat: psu.rearFan.userData.glowMat
+        };
+      }
+      const on = psu.power;
+      psuRearFanGlowMatCached.ringMat.emissiveIntensity = on ? 1.2 + 0.2 * Math.sin(t * 3.1 + 1.4) : 0.04;
+      psuRearFanGlowMatCached.glowMat.opacity = on ? 0.2 : 0.012;
+    }
+
+    function setGlow(entity, t) {
+      const on = entity.kind === 'gpu' ? true : entity.power;
+      const base = on ? (entity.type === 'cpu' ? 0.24 : 0.27) : 0.012;
+      const isHover = hovered === entity;
+      if (entity.glowMat) {
+        entity.glowMat.opacity = base + (on ? 0.035 * Math.sin(t * 2.6 + (entity.id ? entity.id.length : 0)) : 0) + (isHover ? 0.18 : 0);
+      }
+      if (entity.ringMat) {
+        entity.ringMat.emissiveIntensity = on
+          ? 1.3 + 0.22 * Math.sin(t * 2.6 + (entity.id ? entity.id.length : 0)) + (isHover ? 0.85 : 0)
+          : 0.035;
+      }
+    }
+
+    function resize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      // Desplaza el frustum para centrar el gabinete en el espacio libre
+      // que queda a la izquierda del panel de telemetría.
+      if (w >= 768) {
+        const panelWidth = w > 1180 ? 358 : 330;
+        const shift = Math.round((panelWidth + 16) / 2);
+        camera.setViewOffset(w, h, shift, 0, w, h);
+        // Ajusta el zoom para que el gabinete quepa con margen en el hueco
+        // libre que deja el panel, también en ventanas estrechas.
+        const freeWidth = w - panelWidth - 16;
+        camera.zoom = clamp(freeWidth / 640, 0.82, 1.08);
+      } else {
+        // En móvil el panel ocupa la franja inferior: centra el gabinete
+        // en el espacio libre superior y reduce el zoom para que quepa.
+        const panelHeight = Math.min(h * 0.46, 430);
+        const freeHeight = Math.max(180, h - panelHeight - 16);
+        camera.setViewOffset(w, h, 0, Math.round(panelHeight * 0.58), w, h);
+        camera.zoom = clamp(freeHeight / 800, 0.5, 1);
+      }
+      camera.updateProjectionMatrix();
+      particleMat.uniforms.uPR.value = Math.min(window.devicePixelRatio || 1, 2);
+      if (el.contextMenu.classList.contains('open')) positionMenu(menuAnchor.x, menuAnchor.y);
+    }
+    window.addEventListener('resize', resize);
+
+    function animate() {
+      const dt = Math.min(clock.getDelta(), 0.033);
+      updateParticles(dt);
+      syncParticleCount();
+      updateVisuals(dt);
+      controls.update();
+      renderer.render(scene, camera);
+
+      if (firstFrame) {
+        firstFrame = false;
+        setTimeout(() => {
+          const loader = document.getElementById('loader');
+          if (loader) loader.classList.add('done');
+          setTimeout(() => loader && loader.remove(), 800);
+        }, 300);
+      }
+    }
+
+    /* ============================================================
+       22. INICIALIZACIÓN
+       ============================================================ */
+    paintRange(el.densitySlider);
+    rebuildFlow();
+    updateTelemetry();
+    updateGpuUi();
+    setGpuPresent(true);
+    syncParticleCount();
+    resize();
+    canvas.style.cursor = 'grab';
+    renderer.setAnimationLoop(animate);
+
+    // Hook de depuración (también útil para capturas y diagnóstico)
+    window.__AEROFLOW = {
+      THREE, renderer, scene, camera, controls, state, fans, cpu, psu, gpu,
+      updateTelemetry, updateParticles, rebuildFlow, syncParticleCount, updateVisuals,
+      resize, openContext, closeContext, setPsuLocation, setPsuFace, toggleGpu, resetSimulation,
+      get activeCount() { return activeCount; }
+    };
+
+
+
+
+
+
+
+  </script>
+</body>
+</html>
