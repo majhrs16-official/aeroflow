@@ -154,6 +154,10 @@
   .flow-bar > i { display: block; height: 100%; border-radius: 999px; transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
   .intake .flow-bar > i { background: linear-gradient(90deg, #1f7bff, var(--cyan)); box-shadow: 0 0 12px rgba(94, 231, 255, 0.55); }
   .exhaust .flow-bar > i { background: linear-gradient(90deg, #ff6a35, #ffd08a); box-shadow: 0 0 12px rgba(255, 177, 92, 0.45); }
+  .cpu .flow-bar > i { background: linear-gradient(90deg, #6d4dff, #b39dff); box-shadow: 0 0 12px rgba(167, 139, 250, 0.45); }
+  .gpu .flow-bar > i { background: linear-gradient(90deg, #0f9f6e, #7dffb2); box-shadow: 0 0 12px rgba(125, 255, 178, 0.42); }
+  .case-bar .flow-bar > i { background: linear-gradient(90deg, #2a6db5, #9fd4ff); box-shadow: 0 0 12px rgba(120, 190, 255, 0.4); }
+  .amb-bar .flow-bar > i { background: linear-gradient(90deg, #334155, #8ea3b8); }
 
   input[type='range'] {
     -webkit-appearance: none; appearance: none;
@@ -437,10 +441,62 @@
         </div>
       </div>
 
+      <!-- Temperaturas -->
+      <div class="mt-2 grid grid-cols-2 gap-2">
+        <div class="metric-card cpu">
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] uppercase tracking-[0.16em] text-slate-500">CPU</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_#a78bfa]"></span>
+          </div>
+          <div class="mt-1.5 flex items-baseline gap-1">
+            <span id="cpuTemp" class="metric text-[22px] text-violet-200">—</span>
+            <span class="text-[9px] text-slate-500">°C</span>
+          </div>
+          <div class="flow-bar"><i id="cpuTempBar" style="width:0%"></i></div>
+        </div>
+        <div class="metric-card gpu">
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] uppercase tracking-[0.16em] text-slate-500">GPU</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#7dffb2]"></span>
+          </div>
+          <div class="mt-1.5 flex items-baseline gap-1">
+            <span id="gpuTemp" class="metric text-[22px] text-emerald-200">—</span>
+            <span class="text-[9px] text-slate-500">°C</span>
+          </div>
+          <div class="flow-bar"><i id="gpuTempBar" style="width:0%"></i></div>
+        </div>
+        <div class="metric-card case-bar">
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] uppercase tracking-[0.16em] text-slate-500">Case</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-sky-400 shadow-[0_0_8px_#9fd4ff]"></span>
+          </div>
+          <div class="mt-1.5 flex items-baseline gap-1">
+            <span id="caseTemp" class="metric text-[22px] text-sky-200">—</span>
+            <span class="text-[9px] text-slate-500">°C</span>
+          </div>
+          <div class="flow-bar"><i id="caseTempBar" style="width:0%"></i></div>
+        </div>
+        <div class="metric-card amb-bar">
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] uppercase tracking-[0.16em] text-slate-500">Ambiente</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-slate-500 shadow-[0_0_8px_#8ea3b8]"></span>
+          </div>
+          <div class="mt-1.5 flex items-baseline gap-1">
+            <span id="ambTemp" class="metric text-[22px] text-slate-300">22.0</span>
+            <span class="text-[9px] text-slate-500">°C</span>
+          </div>
+          <div class="flow-bar"><i id="ambTempBar" style="width:23%"></i></div>
+        </div>
+      </div>
+
       <div class="mt-2 space-y-1 rounded-xl border border-white/[0.06] bg-white/[0.018] px-3 py-2.5">
         <div class="flex items-center justify-between text-[10px]">
           <span class="text-slate-500">Cooler CPU</span>
           <span id="cpuFlow" class="mono text-slate-300">— CFM · interno</span>
+        </div>
+        <div class="flex items-center justify-between text-[10px]">
+          <span class="text-slate-500">Fans GPU</span>
+          <span id="gpuNote" class="mono text-right text-slate-400">1500 RPM · a través del disipador</span>
         </div>
         <div class="flex items-center justify-between text-[10px]">
           <span class="text-slate-500">Fuente PSU</span>
@@ -574,7 +630,12 @@
       targetParticles: 700,
       gpuPresent: true,
       gpuLoad: 0.75,
-      time: 0
+      time: 0,
+      // Modelo térmico (°C). Ambiente de oficina fijo; cpu/gpu/case son nodos dinámicos.
+      ambientTemp: 22.0,
+      cpuTemp: 34.0,
+      gpuTemp: 44.0,
+      caseTemp: 26.0
     };
 
     /* ============================================================
@@ -1430,7 +1491,7 @@
       rpm: 1400,
       maxRpm: 2000,
       cfmMax: 58,
-      dirName: 'back',
+      dirName: 'derecha',
       dir: new THREE.Vector3(0, 0, -1),
       flowPos: new THREE.Vector3(),
       fanWorld: new THREE.Vector3(),
@@ -1440,33 +1501,38 @@
       glowMat: cpuFanModel.userData.glowMat,
       spinner: cpuFanModel.userData.spinner,
       ledColor: 0xa78bfa,
-      home: { rpm: 1400, power: true, dirName: 'back' }
+      home: { rpm: 1400, power: true, dirName: 'derecha' }
     };
     cpuRoot.userData.interact = cpu;
     interactiveRoots.push(cpuRoot);
     ledFans.push({ data: cpu, ringMat: cpu.ringMat, glowMat: cpu.glowMat, phase: Math.random() * 6.28 });
 
-    const CPU_DIRS = {
-      back: new THREE.Vector3(0, 0, -1),
-      up: new THREE.Vector3(0, 1, 0),
-      front: new THREE.Vector3(0, 0, 1),
-      down: new THREE.Vector3(0, -1, 0)
+    // --- POSICIONES DE MONTAJE DEL VENTILADOR DEL COOLER ---
+    // El fan se sitúa en la cara elegida de la torre y empuja el aire A TRAVÉS
+    // del disipador, saliendo por la cara opuesta (física de cooler torre).
+    // 'frente' = estilo cooler stock de Intel: el ventilador va sobre la cara
+    // exterior del disipador; con la placa acostada queda encima del CPU.
+    const CPU_POSITIONS = {
+      frente:    { face: new THREE.Vector3( 1, 0, 0), flow: new THREE.Vector3(-1, 0, 0) },
+      arriba:    { face: new THREE.Vector3( 0, 1, 0), flow: new THREE.Vector3( 0,-1, 0) },
+      abajo:     { face: new THREE.Vector3( 0,-1, 0), flow: new THREE.Vector3( 0, 1, 0) },
+      izquierda: { face: new THREE.Vector3( 0, 0,-1), flow: new THREE.Vector3( 0, 0, 1) },
+      derecha:   { face: new THREE.Vector3( 0, 0, 1), flow: new THREE.Vector3( 0, 0,-1) }
     };
-    const CPU_DIR_LABEL = { back: 'Hacia atrás', up: 'Hacia arriba', front: 'Hacia el frente', down: 'Hacia abajo' };
+    const CPU_DIR_LABEL = {
+      frente: 'Encima del CPU · Intel stock',
+      arriba: 'Arriba',
+      abajo: 'Abajo',
+      izquierda: 'Izquierda',
+      derecha: 'Derecha'
+    };
 
     function layoutCpuFan() {
-      const dir = cpu.dir.clone().normalize();
-      let mount;
-      let faceNormal;
-      if (Math.abs(dir.y) > 0.5) {
-        mount = CPU_CENTER.clone().add(new THREE.Vector3(0, 0.6, 0));
-        faceNormal = new THREE.Vector3(0, 1, 0);
-      } else {
-        mount = CPU_CENTER.clone().addScaledVector(dir, -0.6);
-        faceNormal = dir.clone().negate();
-      }
+      const p = CPU_POSITIONS[cpu.dirName] || CPU_POSITIONS.derecha;
+      cpu.dir.copy(p.flow);
+      const mount = CPU_CENTER.clone().addScaledVector(p.face, 0.62);
       cpuFanModel.position.copy(mount);
-      cpuFanModel.quaternion.setFromUnitVectors(Z_AXIS, faceNormal);
+      cpuFanModel.quaternion.setFromUnitVectors(Z_AXIS, p.face);
       cpu.fanWorld.copy(mount);
       cpu.flowPos.copy(mount);
     }
@@ -1518,7 +1584,15 @@
       id: 'gpu',
       label: 'GPU VORTEX X',
       group: gpuGroup,
-      present: true
+      present: true,
+      // Ventiladores de la GPU: ahora son fuente de flujo real. Se configuran
+      // con clic derecho sobre la tarjeta (encender/apagar, RPM y voltear dirección).
+      fanPower: true,
+      rpm: 1500,
+      maxRpm: 2100,
+      cfmMax: 56,          // por ventilador (x2 instalados)
+      flipped: false,      // false: aspira por abajo y empuja a través del disipador
+      home: { fanPower: true, rpm: 1500, flipped: false }
     };
     gpuGroup.userData.interact = gpu;
     interactiveRoots.push(gpuGroup);
@@ -1690,6 +1764,18 @@
           radius: 0.5
         });
       }
+
+      // Ventiladores de la GPU: convección forzada a través del disipador
+      // (aspiran por la cara de montaje y empujan por el canal de aletas).
+      if (gpu.present && gpu.fanPower && gpu.rpm > 0) {
+        flowSources.push({
+          pos: GPU_CENTER,
+          mode: 'gpu',
+          sgn: gpu.flipped ? -1 : 1,
+          strength: 6.8 * (gpu.rpm / gpu.maxRpm),
+          radius: 1.0
+        });
+      }
     }
 
     /* ============================================================
@@ -1836,9 +1922,9 @@
         px = rand(BOUNDS.minX + 0.12, BOUNDS.maxX - 0.12);
         py = rand(BOUNDS.minY + 0.2, BOUNDS.maxY - 0.2);
         pz = rand(BOUNDS.minZ + 0.2, BOUNDS.maxZ - 0.2);
-        vx = rand(-0.3, 0.3);
-        vy = rand(-0.2, 0.3);
-        vz = rand(-0.3, 0.3);
+        // Sin draft: el aire en reposo no nace con impulso; si hay campo de flujo,
+        // el propio campo vectorial lo toma.
+        vx = 0; vy = 0; vz = 0;
       } else {
         return;
       }
@@ -1858,16 +1944,19 @@
       velArr[i3] = vx;
       velArr[i3 + 1] = vy;
       velArr[i3 + 2] = vz;
-      tempArr[i] = rand(0.06, 0.13);
+      tempArr[i] = fan ? state.caseTemp - rand(0.4, 1.6) : state.caseTemp;
       lifeArr[i] = rand(9, 19);
       lowArr[i] = 0;
       trailPos[i * 6] = px; trailPos[i * 6 + 1] = py; trailPos[i * 6 + 2] = pz;
       trailPos[i * 6 + 3] = px; trailPos[i * 6 + 4] = py; trailPos[i * 6 + 5] = pz;
     }
 
+    // Temperatura (°C) → coordenada normalizada de la paleta (rango 20…75 °C)
+    const tempNorm = (t) => (t - 20) / 55;
+
     function refreshColors(i) {
       const i3 = i * 3;
-      const t = clamp(tempArr[i], 0, 1);
+      const t = clamp(tempNorm(tempArr[i]), 0, 1);
       if (t < 0.5) tmpColor.copy(C_COLD).lerp(C_WARM, t * 2);
       else tmpColor.copy(C_WARM).lerp(C_HOT, (t - 0.5) * 2);
       const b = 0.9 + t * 1.05;
@@ -1909,7 +1998,6 @@
       state.time += dt;
       const time = state.time;
       const positive = state.pressure === 'positive';
-      const cpuActive = cpu.power ? 1 : 0.35;
 
       for (let i = 0; i < activeCount; i++) {
         const i3 = i * 3;
@@ -1929,6 +2017,44 @@
           const dx = px - src.pos.x;
           const dy = py - src.pos.y;
           const dz = pz - src.pos.z;
+
+          if (src.mode === 'gpu') {
+            // Disipador GPU: los fans aspiran por su cara (columna ancha desde
+            // abajo) y la aspirada se desliza por el canal de aletas hacia las
+            // bocas de la tarjeta (extremos en Z), donde salta y sube. El flip
+            // invierte la cara de aspiración (configuración volteada).
+            const sgn = src.sgn;
+            const m = dy * sgn; // distancia en el sentido del flujo
+            const inCol = Math.abs(dx) < 0.85 && Math.abs(dz) < 1.75;
+            if (inCol) {
+              const latT = Math.exp(-(dx * dx) / 0.26) * Math.exp(-(dz * dz) / 2.1);
+              const latW = Math.exp(-(dx * dx) / 1.3) * Math.exp(-(dz * dz) / 4.5);
+              // 1) succión en columna ancha hacia la cara de los ventiladores
+              if (m < 0.10 && m > -3.0) {
+                const env = m > -0.4 ? 1 : 1 - (0.4 + m) / 2.6;
+                ay += sgn * src.strength * 0.6 * Math.max(0, env * env) * latW;
+              }
+              // 2) colector pegado a la cara de aspiración: corriente de aletas
+              //    hacia la boca más cercana (extremos Z de la tarjeta)
+              if (m < 0.0 && m > -0.42 && latT > 0.02) {
+                az += Math.sign(dz || 1) * src.strength * 0.9 * latT;
+              }
+              // 3) impulso al cruzar las bocas: la pluma sale y sube
+              if (m > 0.06 && m < 1.2 && Math.abs(dz) > 0.95 && Math.abs(dz) < 1.6) {
+                ay += sgn * src.strength * 0.8 * latW;
+              }
+              // 4) retorno del circuito (célula toroidal): el aire que ya subió
+              //    desciende suave por los laterales del case y sobre la tarjeta,
+              //    cerrando la conservación de masa sin condición artificial.
+              const side = (Math.abs(dx) > 0.58 || m > 1.15) && m > 0.15;
+              if (side) ay -= sgn * src.strength * 0.13;
+            } else {
+              // fuera de la columna: retorno en sanas por el resto del case
+              if (m > -0.2) ay -= sgn * src.strength * 0.13;
+            }
+            continue;
+          }
+
           const axial = dx * src.out.x + dy * src.out.y + dz * src.out.z;
           const rad2 = dx * dx + dy * dy + dz * dz - axial * axial;
           let fall = 0;
@@ -1938,6 +2064,34 @@
               const down = Math.max(0, axial);
               const width = src.radius + 0.16 * Math.min(down, 2.2);
               fall = Math.exp(-down * 0.3) * Math.exp(-rad2 / (2 * width * width));
+              // Entrainment física de plumas:
+              // (a) núcleo: el aire cercano al eje es arrastrado hacia él,
+              // (b) halo ancho: el aire ambiente converge lento al chorro
+              //     (conservación de masa). Solo existe si el fan está activo.
+              let ex = 0, ey = 0, ez = 0;
+              let pull = 0;
+              if (fall > 0.002) {
+                const rx = dx - axial * src.out.x;
+                const ry = dy - axial * src.out.y;
+                const rz = dz - axial * src.out.z;
+                ex -= rx * src.strength * 0.22 * fall;
+                ey -= ry * src.strength * 0.22 * fall;
+                ez -= rz * src.strength * 0.22 * fall;
+                pull = src.strength * 0.22;
+              }
+              const haloWidth = width * 2.6;
+              const halo = Math.exp(-down * 0.55) *
+                Math.exp(-(rad2) / (2 * haloWidth * haloWidth));
+              if (halo > 0.004) {
+                pull = Math.max(pull, src.strength * 0.3);
+              }
+              if (pull > 0) {
+                const ilen = 1 / (Math.hypot(dx, dy, dz) + 0.05);
+                ex -= dx * ilen * pull * halo;
+                ey -= dy * ilen * pull * halo;
+                ez -= dz * ilen * pull * halo;
+              }
+              ax += ex; ay += ey; az += ez;
             }
           } else {
             // Succión hacia el plano del ventilador de extracción
@@ -1963,12 +2117,17 @@
           continue;
         }
 
-        // --- Flotabilidad térmica y corriente ambiental coherente ---
+        // --- Flotabilidad térmica y turbulencia por cizalla ---
+        // La flotabilidad usa ΔT real respecto del aire del case (punto nulo en
+        // equilibrio); la turbulencia solo existe si hay campo de flujo generado
+        // por fans: el reposo es un punto fijo del sistema, no una condición.
         const temp = tempArr[i];
-        ay += temp * 1.25;
-        ax += Math.sin(py * 1.7 + time * 0.33) * 0.09;
-        az += Math.cos(px * 1.5 - time * 0.27) * 0.09;
-        ay += Math.sin((px + pz) * 0.9 + time * 0.2) * 0.04;
+        const fmag = Math.sqrt(ax * ax + ay * ay + az * az);
+        const shear = Math.min(1, fmag / 4.5);
+        ay += Math.max(0, temp - state.caseTemp) * 0.0227;
+        ax += Math.sin(py * 1.7 + time * 0.33) * 0.09 * shear;
+        az += Math.cos(px * 1.5 - time * 0.27) * 0.09 * shear;
+        ay += Math.sin((px + pz) * 0.9 + time * 0.2) * 0.04 * shear;
 
         // --- Integración con arrastre ---
         vx += ax * dt;
@@ -2045,36 +2204,42 @@
           }
         }
 
-        // --- Transferencia térmica ---
+        // --- Transferencia térmica (convectiva: el intercambio depende del
+        //     flujo local; con aire estancado el coeficiente tiende a cero) ---
+        const spd = Math.sqrt(sp2);
+        const adv = Math.min(1, spd / 1.9);
+
         const ddx = px - CPU_CENTER.x;
         const ddy = py - CPU_CENTER.y;
         const ddz = pz - CPU_CENTER.z;
         const dCpu = ddx * ddx + ddy * ddy + ddz * ddz;
         if (dCpu < 0.95 * 0.95) {
-          const gain = (1.0 - dCpu / 0.9025) * 1.9 * cpuActive;
-          tempArr[i] = Math.min(1, tempArr[i] + gain * dt);
+          const gain = clamp((1.0 - dCpu / 0.9025) * 2.4 * adv * dt, 0, 0.42);
+          tempArr[i] += (state.cpuTemp - tempArr[i]) * gain;
         }
 
         if (state.gpuPresent &&
             px > -1.05 && px < -0.2 &&
             py > -0.52 && py < 0.46 &&
             pz > -1.25 && pz < 1.28) {
-          const gain = 1.25 * state.gpuLoad;
-          tempArr[i] = Math.min(1, tempArr[i] + gain * dt);
+          const gain = clamp(1.8 * adv * dt, 0, 0.4);
+          tempArr[i] += (state.gpuTemp - tempArr[i]) * gain;
         }
 
         if (px > -1.02 && px < -0.68 && py > 1.25 && py < 1.9 && pz > -1.55 && pz < -0.6) {
-          tempArr[i] = Math.min(1, tempArr[i] + 0.55 * dt);
+          tempArr[i] += (state.cpuTemp + 6 - tempArr[i]) * clamp(0.55 * adv * dt, 0, 0.3);
         }
 
-        const cooling = (0.22 + Math.min(2.5, Math.sqrt(sp2)) * 0.055) * dt;
-        tempArr[i] += (0.075 - tempArr[i]) * Math.min(0.7, cooling);
+        // Enfriamiento hacia el nodo térmico del case (con masa, no a 0 fija)
+        tempArr[i] += (state.caseTemp - tempArr[i]) * Math.min(0.7, (0.16 + Math.min(2.5, spd) * 0.05) * dt);
 
         // --- Vida útil y rescate de partículas atascadas ---
+        // Sin fuentes activas el reposo es el estado natural del aire:
+        // el rescate no debe romper esa quietud.
         lifeArr[i] -= dt;
         if (sp2 < 0.005) {
           lowArr[i] += dt;
-          if (lowArr[i] > 1.1) resetParticle(i);
+          if (lowArr[i] > 1.1 && flowSources.length) resetParticle(i);
         } else {
           lowArr[i] = 0;
         }
@@ -2094,7 +2259,7 @@
         velArr[i3 + 1] = vy;
         velArr[i3 + 2] = vz;
 
-        const t = clamp(tempArr[i], 0, 1);
+        const t = clamp(tempNorm(tempArr[i]), 0, 1);
         if (t < 0.5) tmpColor.copy(C_COLD).lerp(C_WARM, t * 2);
         else tmpColor.copy(C_WARM).lerp(C_HOT, (t - 0.5) * 2);
         const bright = 0.9 + t * 1.05;
@@ -2144,6 +2309,13 @@
       pressureNeedle: document.getElementById('pressureNeedle'),
       pressureHint: document.getElementById('pressureHint'),
       cpuFlow: document.getElementById('cpuFlow'),
+      gpuNote: document.getElementById('gpuNote'),
+      cpuTemp: document.getElementById('cpuTemp'),
+      cpuTempBar: document.getElementById('cpuTempBar'),
+      gpuTemp: document.getElementById('gpuTemp'),
+      gpuTempBar: document.getElementById('gpuTempBar'),
+      caseTemp: document.getElementById('caseTemp'),
+      caseTempBar: document.getElementById('caseTempBar'),
       psuNote: document.getElementById('psuNote'),
       densitySlider: document.getElementById('densitySlider'),
       densityValue: document.getElementById('densityValue'),
@@ -2222,6 +2394,15 @@
         el.cpuFlow.textContent = `${cpuCfm.toFixed(0)} CFM · ${CPU_DIR_LABEL[cpu.dirName]}`;
       }
 
+      if (el.gpuNote) {
+        if (!state.gpuPresent) el.gpuNote.textContent = 'GPU retirada';
+        else if (!gpu.fanPower || gpu.rpm <= 0) el.gpuNote.textContent = 'Apagados';
+        else {
+          const gpuCfm = 2 * gpu.cfmMax * (gpu.rpm / gpu.maxRpm);
+          el.gpuNote.textContent = `${gpu.rpm} RPM · ${gpu.flipped ? 'volteado ↓' : 'vía disipador ↑'} · ${gpuCfm.toFixed(0)} CFM`;
+        }
+      }
+
       if (el.psuNote) {
         if (!psu.power) el.psuNote.textContent = 'Apagada · sin extracción';
         else if (psu.face === 'interior') el.psuNote.textContent = `+${psuCfm.toFixed(0)} CFM · extracción`;
@@ -2266,6 +2447,96 @@
     }
 
     /* ============================================================
+       16b. MODELO TÉRMICO (CPU / GPU / CASE / AMBIENTE)
+       Estructura tomada de aeroflow2, con el nodo del case como sistema
+       de primer orden (masa térmica) y balance calor/renovación de aire.
+       Corre en el loop: las partículas leen estos nodos en °C reales.
+    ============================================================ */
+    const TEMP_BAR_MAX = 95;
+
+    function tempHudColor(t) {
+      return t >= 75 ? '#ff6574' : t >= 60 ? '#ffb15c' : t >= 42 ? '#b7e9ff' : '#8fd4ff';
+    }
+
+    // CFM total activo: chasis + PSU con cara de datos hacia el interior.
+    // Los fans del CPU y de la GPU (recirculan) no alteran la renovación.
+    function totalAirflowCfm() {
+      let cfm = 0;
+      for (const fan of fans) cfm += fanCfm(fan);
+      if (psu.power && psu.face === 'interior' && psu.rpm > 0) {
+        cfm += psu.cfmMax * (psu.rpm / psu.maxRpm);
+      }
+      return cfm;
+    }
+
+    function updateThermal(dt) {
+      // 1. NODO CASE: calor disipado hacia el chasis vs renovación de aire.
+      //    Carga: CPU 60 W en carga + GPU 130 W escalado por su carga.
+      const load = 60 + (state.gpuPresent ? state.gpuLoad * 130 : 0);
+      const caseTarget = state.ambientTemp + 38 * (load / 190) * (1 / (1 + totalAirflowCfm() / 90));
+      state.caseTemp += (caseTarget - state.caseTemp) * (1 - Math.exp(-dt / 7));
+
+      // 2. CPU: Rth del cooler decrece con RPM curvadas (1-η)^1.15.
+      //    Sin ventilador: empapado térmico lento hasta el techo de throttling 95 °C.
+      const nc = cpu.power && cpu.rpm > 0 ? cpu.rpm / cpu.maxRpm : 0;
+      let cpuTarget, tauC;
+      if (nc > 0) {
+        cpuTarget = state.caseTemp + 8 + 34 * Math.pow(1 - nc, 1.15);
+        tauC = 2.6;
+      } else {
+        cpuTarget = Math.min(95, state.caseTemp + 52);
+        tauC = 8;
+      }
+      state.cpuTemp += (cpuTarget - state.cpuTemp) * (1 - Math.exp(-dt / tauC));
+
+      // 3. GPU: ventiladores propios (RPM) + remoción térmica del chasis.
+      //    Sin ventiladores actúa el empapado; retirada → vuelve a ambiente.
+      if (state.gpuPresent) {
+        const ng = gpu.fanPower && gpu.rpm > 0 ? gpu.rpm / gpu.maxRpm : 0;
+        const fanTerm = ng > 0 ? 16 * (1 - 0.8 * ng) : 26;
+        const gpuTarget = Math.min(92,
+          state.caseTemp + fanTerm + 46 * (1 / (1 + totalAirflowCfm() / 130)) * state.gpuLoad);
+        state.gpuTemp += (gpuTarget - state.gpuTemp) * (1 - Math.exp(-dt / 4));
+      } else {
+        state.gpuTemp += (state.ambientTemp - state.gpuTemp) * (1 - Math.exp(-dt / 9));
+      }
+    }
+
+    let thermalDomAcc = 0;
+    function updateThermalHud(dt) {
+      thermalDomAcc += dt;
+      if (thermalDomAcc < 0.2) return;
+      thermalDomAcc = 0;
+
+      if (el.cpuTemp) {
+        el.cpuTemp.textContent = state.cpuTemp.toFixed(1);
+        el.cpuTemp.style.color = tempHudColor(state.cpuTemp);
+      }
+      if (el.cpuTempBar) el.cpuTempBar.style.width = clamp((state.cpuTemp / TEMP_BAR_MAX) * 100, 0, 100).toFixed(1) + '%';
+
+      if (el.gpuTemp) {
+        if (state.gpuPresent) {
+          el.gpuTemp.textContent = state.gpuTemp.toFixed(1);
+          el.gpuTemp.style.color = tempHudColor(state.gpuTemp);
+        } else {
+          el.gpuTemp.textContent = 'OFF';
+          el.gpuTemp.style.color = '#64748b';
+        }
+      }
+      if (el.gpuTempBar) {
+        el.gpuTempBar.style.width = state.gpuPresent
+          ? clamp((state.gpuTemp / TEMP_BAR_MAX) * 100, 0, 100).toFixed(1) + '%'
+          : '0%';
+      }
+
+      if (el.caseTemp) {
+        el.caseTemp.textContent = state.caseTemp.toFixed(1);
+        el.caseTemp.style.color = tempHudColor(state.caseTemp);
+      }
+      if (el.caseTempBar) el.caseTempBar.style.width = clamp((state.caseTemp / TEMP_BAR_MAX) * 100, 0, 100).toFixed(1) + '%';
+    }
+
+    /* ============================================================
        17. ACCIONES DE ESTADO
        ============================================================ */
     function setFanPower(fan, on) {
@@ -2295,13 +2566,12 @@
     }
 
     function setCpuDirection(dirName) {
-      if (!CPU_DIRS[dirName]) return;
+      if (!CPU_POSITIONS[dirName]) return;
       cpu.dirName = dirName;
-      cpu.dir.copy(CPU_DIRS[dirName]);
       layoutCpuFan();
       rebuildFlow();
       updateTelemetry();
-      toast(`Cooler CPU: flujo ${CPU_DIR_LABEL[dirName].toLowerCase()}`);
+      toast(`Cooler CPU: posición ${CPU_DIR_LABEL[dirName].toLowerCase()}`);
     }
 
     function setCpuDirFromName(dirName) {
@@ -2330,6 +2600,8 @@
     function toggleGpu() {
       state.gpuPresent = !state.gpuPresent;
       setGpuPresent(state.gpuPresent);
+      rebuildFlow();
+      updateTelemetry();
       updateGpuUi();
       toast(state.gpuPresent ? 'GPU instalada · fuente térmica activa' : 'GPU retirada · flujo despejado');
     }
@@ -2344,9 +2616,13 @@
       cpu.power = cpu.home.power;
       cpu.rpm = cpu.home.rpm;
       cpu.dirName = cpu.home.dirName;
-      cpu.dir.copy(CPU_DIRS[cpu.home.dirName]);
       layoutCpuFan();
       setFanLed(cpu);
+
+      gpu.fanPower = gpu.home.fanPower;
+      gpu.rpm = gpu.home.rpm;
+      gpu.flipped = gpu.home.flipped;
+      gpu.visualSpeed = 0;
 
       psu.power = psu.home.power;
       psu.rpm = psu.home.rpm;
@@ -2358,6 +2634,10 @@
       state.gpuPresent = true;
       setGpuPresent(true);
       updateGpuUi();
+      // El reset también devuelve el estado térmico al arranque en frío.
+      state.cpuTemp = 34.0;
+      state.gpuTemp = 44.0;
+      state.caseTemp = 26.0;
 
       state.targetParticles = 700;
       if (el.densitySlider) {
@@ -2391,7 +2671,12 @@
 
     function statusInfo(target) {
       if (target.kind === 'gpu') {
-        return { color: '#7dffb2', text: target.present ? 'INSTALADA' : 'RETIRADA' };
+        if (!target.present) return { color: '#5c6f83', text: 'RETIRADA' };
+        if (!target.fanPower || target.rpm <= 0) return { color: '#ffb15c', text: 'FANS APAGADOS' };
+        return {
+          color: '#7dffb2',
+          text: target.flipped ? 'FANS ACTIVOS · VOLTEADOS' : 'FANS ACTIVOS'
+        };
       }
       if (!target.power) return { color: '#5c6f83', text: 'APAGADO' };
       if (target.kind === 'psu') return { color: '#ffb15c', text: 'ACTIVA' };
@@ -2464,11 +2749,12 @@
     function buildCpuMenu(target) {
       const s = statusInfo(target);
       const cfm = targetCfm(target);
-      const dirs = [
-        ['back', '← Atrás'],
-        ['up', '↑ Arriba'],
-        ['front', 'Frente →'],
-        ['down', '↓ Abajo']
+      const posiciones = [
+        ['frente', 'Frente · Intel stock'],
+        ['arriba', '↑ Arriba'],
+        ['abajo', '↓ Abajo'],
+        ['izquierda', '← Izquierda'],
+        ['derecha', 'Derecha →']
       ];
       return `
         <div class="flex items-start justify-between gap-3">
@@ -2486,16 +2772,63 @@
         <div class="ctx-section">${powerRow(target)}</div>
         <div class="ctx-section">
           <div class="ctx-label-row">
-            <span class="ctx-label" style="margin-bottom:0">Dirección de expulsión</span>
+            <span class="ctx-label" style="margin-bottom:0">Posición del ventilador</span>
             <span class="text-[9px] text-violet-300">${CPU_DIR_LABEL[target.dirName]}</span>
           </div>
           <div class="grid grid-cols-2 gap-1.5">
-            ${dirs.map(([key, text]) => `<button data-dir="${key}" type="button" class="border border-white/[0.08] bg-white/[0.025] rounded-lg px-2 py-2 text-[10.5px] transition ${target.dirName === key ? 'text-violet-100 border-violet-400/40 bg-violet-400/10' : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}">${text}</button>`).join('')}
+            ${posiciones.map(([key, text]) => `<button data-dir="${key}" type="button" class="border border-white/[0.08] bg-white/[0.025] rounded-lg px-2 py-2 text-[10.5px] transition ${target.dirName === key ? 'text-violet-100 border-violet-400/40 bg-violet-400/10' : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}">${text}</button>`).join('')}
           </div>
         </div>
-        ${rpmSection(target, 'El flujo atraviesa el disipador y se orienta según la dirección elegida.')}
+        ${rpmSection(target, 'El ventilador empuja a través del disipador y el aire sale por la cara opuesta a la de montaje.')}
         <div class="ctx-divider"></div>
         <div class="ctx-hint">Clic izquierdo sobre el cooler: encender / apagar.</div>`;
+    }
+
+    function buildGpuMenu(target) {
+      const s = statusInfo(target);
+      const on = target.fanPower;
+      const cfm = on && target.rpm > 0 ? 2 * target.cfmMax * (target.rpm / target.maxRpm) : 0;
+      const pct = clamp((target.rpm / target.maxRpm) * 100, 0, 100);
+      return `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="ctx-kicker">Disipación de la tarjeta gráfica</div>
+            <div class="ctx-title">Fans GPU<span class="ctx-id">GPU</span></div>
+          </div>
+          <button class="ctx-close" data-close type="button" aria-label="Cerrar">×</button>
+        </div>
+        <div class="mt-2.5 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
+          <span class="h-1.5 w-1.5 rounded-full" style="background:${s.color};box-shadow:0 0 8px ${s.color}"></span>
+          <span class="mono text-[9px] tracking-[0.1em]" style="color:${s.color}">${s.text}</span>
+          <span class="ml-auto mono text-[10px] text-slate-300"><b data-cfm-read>${cfm.toFixed(0)}</b> <span class="text-slate-600">CFM</span></span>
+        </div>
+        <div class="ctx-section">
+          <button class="ctx-power ${on ? 'on' : ''}" data-power type="button" aria-pressed="${on}">
+            <span class="power-led"></span>
+            <span>${on ? 'Encendidos' : 'Apagados'}</span>
+            <span class="ml-auto text-[8.5px] uppercase tracking-[0.16em] opacity-60">Power</span>
+          </button>
+        </div>
+        <div class="ctx-section">
+          <div class="ctx-label-row">
+            <span class="ctx-label" style="margin-bottom:0">Velocidad</span>
+            <span class="mono text-[10px] text-slate-300"><b data-rpm-read>${target.rpm}</b> <span class="text-slate-600">RPM</span></span>
+          </div>
+          <input type="range" min="0" max="${target.maxRpm}" step="50" value="${target.rpm}" data-rpm-slider style="--p:${pct.toFixed(1)}%" aria-label="RPM de los fans de la GPU" />
+          <div class="flex justify-between text-[8px] text-slate-600"><span>0</span><span>${target.maxRpm} RPM</span></div>
+        </div>
+        <div class="ctx-section">
+          <div class="ctx-label">Sentido del flujo</div>
+          <div class="seg">
+            <button data-flip="normal" class="${!target.flipped ? 'active' : ''}" type="button">↑ Disipador</button>
+            <button data-flip="flipped" class="${target.flipped ? 'active tone-exhaust' : ''}" type="button">↓ Volteado</button>
+          </div>
+          <div class="ctx-hint">${target.flipped
+            ? 'Flujo invertido: los fans empujan hacia abajo, aspirando desde la zona del backplate.'
+            : 'Flujo normal: los fans aspiran por la cara inferior y empujan a través del disipador (convección forzada).'}</div>
+        </div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-hint">Clic izquierdo sobre la tarjeta: instalar / retirar la GPU. Clic derecho: configurar los fans.</div>`;
     }
 
     function buildPsuMenu(target) {
@@ -2538,6 +2871,7 @@
     }
 
     function buildContextHtml(target) {
+      if (target.kind === 'gpu') return buildGpuMenu(target);
       if (target.kind === 'psu') return buildPsuMenu(target);
       if (target.type === 'cpu') return buildCpuMenu(target);
       return buildFanMenu(target);
@@ -2583,6 +2917,14 @@
       if (!menuTarget) return;
 
       if (e.target.closest('[data-power]')) {
+        if (menuTarget.kind === 'gpu') {
+          menuTarget.fanPower = !menuTarget.fanPower;
+          rebuildFlow();
+          updateTelemetry();
+          toast(`Fans GPU: ${menuTarget.fanPower ? 'encendidos' : 'apagados'}`);
+          refreshOpenMenu();
+          return;
+        }
         if (menuTarget.kind === 'fan' || menuTarget.kind === 'psu') {
           menuTarget.power = !menuTarget.power;
           setFanLed(menuTarget);
@@ -2604,6 +2946,16 @@
       const dirBtn = e.target.closest('[data-dir]');
       if (dirBtn && menuTarget.type === 'cpu') {
         setCpuDirection(dirBtn.dataset.dir);
+        refreshOpenMenu();
+        return;
+      }
+
+      const flipBtn = e.target.closest('[data-flip]');
+      if (flipBtn && menuTarget.kind === 'gpu') {
+        menuTarget.flipped = flipBtn.dataset.flip === 'flipped';
+        rebuildFlow();
+        updateTelemetry();
+        toast(`Fans GPU: flujo ${menuTarget.flipped ? 'volteado' : 'normal'}`);
         refreshOpenMenu();
         return;
       }
@@ -2634,7 +2986,14 @@
       const rpmRead = el.contextMenu.querySelector('[data-rpm-read]');
       const cfmRead = el.contextMenu.querySelector('[data-cfm-read]');
       if (rpmRead) rpmRead.textContent = value;
-      if (cfmRead) cfmRead.textContent = targetCfm(menuTarget).toFixed(0);
+      if (cfmRead) {
+        const cfm = menuTarget.kind === 'gpu'
+          ? ((menuTarget.fanPower && menuTarget.rpm > 0)
+            ? 2 * menuTarget.cfmMax * (menuTarget.rpm / menuTarget.maxRpm)
+            : 0)
+          : targetCfm(menuTarget);
+        cfmRead.textContent = cfm.toFixed(0);
+      }
     });
 
     /* ============================================================
@@ -2671,7 +3030,7 @@
 
     function tooltipHtml(target) {
       if (target.kind === 'gpu') {
-        return `<b>GPU VORTEX X</b> · <span class="tt-mode">clic para ${target.present ? 'retirar' : 'instalar'}</span>`;
+        return `<b>GPU VORTEX X</b> · <span class="tt-mode">clic: ${target.present ? 'retirar' : 'instalar'} · clic derecho: fans</span>`;
       }
       if (target.kind === 'psu') {
         return `<b>PSU 750W</b> · <span class="tt-mode ${target.power ? 'exhaust' : ''}">${target.power ? 'activa' : 'apagada'}</span> · clic derecho para configurar`;
@@ -2772,8 +3131,9 @@
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       hideTooltip();
+      // Clic derecho abre configuración (la GPU ahora incluye menú de sus fans)
       const target = pickAt(e.clientX, e.clientY);
-      if (target && target.kind !== 'gpu') openContext(target, e.clientX, e.clientY);
+      if (target) openContext(target, e.clientX, e.clientY);
       else closeContext();
     });
 
@@ -2847,10 +3207,19 @@
       setGlow(psu, t);
 
       if (gpuGroup.visible) {
-        for (const spinner of gpuFanSpinners) spinner.rotation.z += 13 * dt;
+        // Fans de la GPU: giro y glow dependen de power/RPM; el flip invierte el sentido
+        const nGpu = gpu.fanPower && gpu.rpm > 0 ? gpu.rpm / gpu.maxRpm : 0;
+        gpu.visualSpeed = lerp(gpu.visualSpeed || 0, 13 * nGpu, 1 - Math.exp(-6 * dt));
+        const gpuSign = gpu.flipped ? -1 : 1;
+        for (const spinner of gpuFanSpinners) spinner.rotation.z += gpu.visualSpeed * dt * gpuSign;
+        const gpuOn = gpu.fanPower && gpu.rpm > 0;
         for (const item of gpuFanGlows) {
-          item.ringMat.emissiveIntensity = 1.2 + 0.2 * Math.sin(t * 3 + item.phase);
-          item.glowMat.opacity = 0.2 + 0.035 * Math.sin(t * 3 + item.phase);
+          item.ringMat.emissiveIntensity = gpuOn
+            ? 0.55 + 0.75 * nGpu + 0.2 * Math.sin(t * 3 + item.phase)
+            : 0.04;
+          item.glowMat.opacity = gpuOn
+            ? (0.1 + 0.13 * nGpu) + 0.035 * Math.sin(t * 3 + item.phase)
+            : 0.012;
         }
       }
 
@@ -2925,6 +3294,8 @@
 
     function animate() {
       const dt = Math.min(clock.getDelta(), 0.033);
+      updateThermal(dt);
+      updateThermalHud(dt);
       updateParticles(dt);
       syncParticleCount();
       updateVisuals(dt);
@@ -2958,8 +3329,28 @@
     window.__AEROFLOW = {
       THREE, renderer, scene, camera, controls, state, fans, cpu, psu, gpu,
       updateTelemetry, updateParticles, rebuildFlow, syncParticleCount, updateVisuals,
+      updateThermal, totalAirflowCfm, setCpuDirection,
       resize, openContext, closeContext, setPsuLocation, setPsuFace, toggleGpu, resetSimulation,
-      get activeCount() { return activeCount; }
+      posArr, velArr, tempArr, lifeArr, lowArr,
+      get activeCount() { return activeCount; },
+      get flowSources() { return flowSources; },
+      get particleSpeed() {
+        let s = 0;
+        for (let i = 0; i < activeCount; i++) {
+          const i3 = i * 3;
+          s += Math.sqrt(velArr[i3] * velArr[i3] + velArr[i3 + 1] * velArr[i3 + 1] + velArr[i3 + 2] * velArr[i3 + 2]);
+        }
+        return s / Math.max(1, activeCount);
+      },
+      get particleSpeedP95() {
+        const arr = [];
+        for (let i = 0; i < activeCount; i++) {
+          const i3 = i * 3;
+          arr.push(Math.sqrt(velArr[i3] * velArr[i3] + velArr[i3 + 1] * velArr[i3 + 1] + velArr[i3 + 2] * velArr[i3 + 2]));
+        }
+        arr.sort((a, b) => a - b);
+        return arr.length ? arr[Math.floor(arr.length * 0.95)] : 0;
+      }
     };
 
 
